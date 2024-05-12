@@ -4,12 +4,12 @@ PWD				:= $(shell pwd)
 EXTRA_CFLAGS	+= -DDEBUG
 obj-m			+= ebpf_offload_riscv.o
 
-address_book_nf-y := \
+ebpf_offload_riscv-y := \
 	main.o
 
 all: build install load
 
-build:
+ebpf_offload_riscv.ko:
 	@echo
 	@echo '--- Building : KDIR=${KDIR} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} EXTRA_CFLAGS=${EXTRA_CFLAGS} ---'
 	@echo
