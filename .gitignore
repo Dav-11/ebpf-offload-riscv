@@ -6,3 +6,17 @@
 .vscode
 .fleet
 .zed
+
+# LKM artifacts
+**/*.ko
+**/*.o
+**/*.o.d
+**/*.o.cmd
+**/*.mod.c
+**/*.mod
+**/*.mod.cmd
+**/*.ko.cmd
+**/*.cmd
+**/modules.order
+**/Module.symvers
+**/cmake-build-debug

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: GPL
 
 #define pr_fmt(fmt) "%s:%s(): " fmt, KBUILD_MODNAME, __func__
 
@@ -6,17 +6,12 @@
 #include <linux/module.h>
 #include <linux/bpf.h>
 #include <linux/bpf_verifier.h>
-#include <bpf/bpf_helpers.h>
+// #include <bpf/bpf_helpers.h>
 
-static const struct bpf_prog_offload_ops my_offload_ops = {
-    .insn_hook = my_insn_hook,
-    .finalize = my_finalize,
-    .replace_insn = my_replace_insn,
-    .remove_insns = my_remove_insns,
-    .prepare = my_prepare,
-    .translate = my_translate,
-    .destroy = my_destroy,
-};
+MODULE_AUTHOR("Davide Collovigh");
+MODULE_DESCRIPTION("bpf_offload_dev");
+MODULE_LICENSE("GPL");
+MODULE_VERSION("0.1");
 
 static const struct bpf_offload_dev *dev;
 
@@ -46,6 +41,7 @@ int my_finalize(struct bpf_verifier_env *env) {
     // TODO: implement
     return 0;
 }
+
 /**
  * This callback replaces an instruction during BPF optimization.
  * @param env The verifier environment
@@ -101,8 +97,18 @@ int my_translate(struct bpf_prog *prog) {
 void my_destroy(struct bpf_prog *prog) {
 
     //TODO: implement
-    return 0;
+    return;
 }
+
+static const struct bpf_prog_offload_ops my_offload_ops = {
+    .insn_hook = my_insn_hook,
+    .finalize = my_finalize,
+    .replace_insn = my_replace_insn,
+    .remove_insns = my_remove_insns,
+    .prepare = my_prepare,
+    .translate = my_translate,
+    .destroy = my_destroy,
+};
 
 static int __init ebpf_riscv_offload_init(void)
 {
