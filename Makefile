@@ -7,7 +7,7 @@ obj-m			+= ebpf_offload_riscv.o
 ebpf_offload_riscv-y := \
 	main.o
 
-all: build install load
+all: ebpf_offload_riscv.ko install load
 
 ebpf_offload_riscv.ko:
 	@echo
