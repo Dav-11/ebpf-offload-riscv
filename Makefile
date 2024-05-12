@@ -7,7 +7,7 @@ obj-m			+= ebpf_offload_riscv.o
 ebpf_offload_riscv-y := \
 	main.o
 
-all: ebpf_offload_riscv.ko install load
+all: format ebpf_offload_riscv.ko install load
 
 ebpf_offload_riscv.ko:
 	@echo
@@ -39,6 +39,12 @@ unload:
 
 	sudo rmmod ebpf_offload_riscv
 
+format:
+	@echo
+	@echo "--- Formatting the code ---"
+	@echo
+	clang-format -i -style=file *.c *.h
+
 clean:
 	@echo
 	@echo "--- Cleaning ---"
@@ -54,4 +60,3 @@ help:
 	@echo
 	@echo	   help: show this message
 	@echo	   clean: clear all the files created by the compile process
-
