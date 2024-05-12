@@ -5,10 +5,10 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/bpf.h>
+#include <linux/bpf_verifier.h>
 #include <bpf/bpf_helpers.h>
 
 static const struct bpf_prog_offload_ops my_offload_ops = {
-
     .insn_hook = my_insn_hook,
     .finalize = my_finalize,
     .replace_insn = my_replace_insn,
@@ -19,14 +19,6 @@ static const struct bpf_prog_offload_ops my_offload_ops = {
 };
 
 static const struct bpf_offload_dev *dev;
-
-// struct bpf_offload_dev {
-// 	const struct bpf_prog_offload_ops *ops;
-// 	struct list_head netdevs;
-// 	void *priv;
-// };
-
-
 
 /**
  * This callback is invoked during BPF instruction verification.

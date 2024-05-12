@@ -30,14 +30,14 @@ load:
 	@echo "--- Loading module into the kernel ---"
 	@echo
 
-	sudo insmod $(PWD)/address_book_nf.ko
+	sudo insmod $(PWD)/ebpf_offload_riscv.ko
 
 unload:
 	@echo
 	@echo "--- Removing the module from the kernel ---"
 	@echo
 
-	sudo rmmod address_book_nf
+	sudo rmmod ebpf_offload_riscv
 
 clean:
 	@echo
