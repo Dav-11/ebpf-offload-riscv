@@ -5,15 +5,15 @@ EXTRA_CFLAGS	+= -DDEBUG
 obj-m			+= ebpf_offload_riscv.o
 
 ebpf_offload_riscv-y := \
-	main.o \
-	arch/riscv/net/bpf_jit_core.o \
-	arch/riscv/net/bpf_jit_comp64.o
+	main.o #\
+#	arch/riscv/net/bpf_jit_core.o \
+#	arch/riscv/net/bpf_jit_comp64.o
 
 all: format ebpf_offload_riscv.ko install load
 
 ebpf_offload_riscv.ko:
 	@echo
-	@echo '--- Building : KDIR=${KDIR} ARCH=${ARCH} CROSS_COMPILE=${CROSS_COMPILE} EXTRA_CFLAGS=${EXTRA_CFLAGS} ---'
+	@echo '--- Building : KDIR=${KDIR} M=${PWD} ---'
 	@echo
 
 	@# build
@@ -45,7 +45,7 @@ format:
 	@echo
 	@echo "--- Formatting the code ---"
 	@echo
-	clang-format -i -style=file *.c *.h
+	clang-format -i -style=file arch/riscv/net/*.c arch/riscv/net/*.h
 
 clean:
 	@echo
