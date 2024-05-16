@@ -7,6 +7,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
+#include "arch/riscv/net/bpf_jit.h"
+
 MODULE_AUTHOR("Davide Collovigh");
 MODULE_DESCRIPTION("bpf_offload_dev");
 MODULE_LICENSE("GPL");

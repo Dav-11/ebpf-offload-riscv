@@ -5,7 +5,9 @@ EXTRA_CFLAGS	+= -DDEBUG
 obj-m			+= ebpf_offload_riscv.o
 
 ebpf_offload_riscv-y := \
-	main.o
+	main.o \
+	arch/riscv/net/bpf_jit_core.o \
+	arch/riscv/net/bpf_jit_comp64.o
 
 all: format ebpf_offload_riscv.ko install load
 
