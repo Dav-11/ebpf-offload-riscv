@@ -1,23 +1,66 @@
-KDIR ?= /lib/modules/$(shell uname -r)/build
+KERNEL_VERSION			:= $(shell uname -r)
+
+KERNEL_VERSION_NUMBER_F	:= $(shell uname -r | cut -d- -f1)
+
+# Define a function to remove trailing ".0" (if needed)
+ifeq ($(findstring .0,$(KERNEL_VERSION_NUMBER_F)), $(KERNEL_VERSION_NUMBER_F))
+  KERNEL_VERSION_NUMBER := $(KERNEL_VERSION_NUMBER_F)
+else
+  KERNEL_VERSION_NUMBER := $(subst .0,,$(KERNEL_VERSION_NUMBER_F))
+endif
+
+KERNEL_VERSION_MAJOR	:= $(shell echo $(KERNEL_VERSION_NUMBER_F) | cut -d. -f1)
+
+KERNEL_URL				:= https://cdn.kernel.org/pub/linux/kernel/v$(KERNEL_VERSION_MAJOR).x/linux-$(KERNEL_VERSION_NUMBER).tar.xz
+UNTAR_DIR				:= linux-$(KERNEL_VERSION_NUMBER)
+TAR_FILE				:= $(UNTAR_DIR).tar.xz
+
+KDIR ?= /lib/modules/$(KERNEL_VERSION)/build
 
 PWD				:= $(shell pwd)
 EXTRA_CFLAGS	+= -DDEBUG
 obj-m			+= ebpf_offload_riscv.o
 
+LIB_PATH		:= $(abspath ./libs)
+LINUX_PATH		:= $(abspath $(LIB_PATH)/linux)
+
 ebpf_offload_riscv-y := \
-	main.o #\
-#	arch/riscv/net/bpf_jit_core.o \
+	main.o \
+	arch/riscv/net/bpf_jit_core.o #\
 #	arch/riscv/net/bpf_jit_comp64.o
 
-all: format ebpf_offload_riscv.ko install load
+# hide output unless V=1
+ifeq ($(V),1)
+	Q =
+	msg =
+else
+	Q = @
+	msg = @printf '  %-8s %s%s\n'					\
+		      "$(1)"						\
+		      "$(patsubst $(abspath $(OUTPUT))/%,%,$(2))"	\
+		      "$(if $(3), $(3))";
+	MAKEFLAGS += --no-print-directory
+endif
 
-ebpf_offload_riscv.ko:
-	@echo
-	@echo '--- Building : KDIR=${KDIR} M=${PWD} ---'
-	@echo
+all: $(LINUX_PATH) format ebpf_offload_riscv.ko install load
 
-	@# build
-	$(MAKE) -C $(KDIR) M=$(PWD) modules
+$(LINUX_PATH):
+	$(call msg,WGET,$(KERNEL_URL))
+	$(Q) wget -q $(KERNEL_URL)
+
+	$(call msg,UNTAR,$(TAR_FILE))
+	$(Q) tar -xf $(TAR_FILE)
+
+	$(call msg,MV,$(LINUX_PATH))
+	$(Q) mv $(UNTAR_DIR) $(LINUX_PATH)
+
+	$(call msg,RM,$(TAR_FILE))
+	$(Q) rm -f $(TAR_FILE)
+
+ebpf_offload_riscv.ko: $(LINUX_PATH)
+
+	$(call msg,MAKE,$@)
+	$(Q) $(MAKE) -C $(KDIR) M=$(PWD) modules
 
 install:
 	@echo
@@ -47,11 +90,15 @@ format:
 	@echo
 	clang-format -i -style=file arch/riscv/net/*.c arch/riscv/net/*.h
 
-clean:
+clean-module:
 	@echo
 	@echo "--- Cleaning ---"
 	@echo
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+
+.PHONY: clean
+clean: clean-module
+	$(Q) rm -rf $(LINUX_PATH)
 
 help:
 	@echo targets:
@@ -62,3 +109,6 @@ help:
 	@echo
 	@echo	   help: show this message
 	@echo	   clean: clear all the files created by the compile process
+
+# delete failed targets
+.DELETE_ON_ERROR:

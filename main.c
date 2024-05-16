@@ -14,7 +14,7 @@ MODULE_DESCRIPTION("bpf_offload_dev");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("0.1");
 
-static const struct bpf_offload_dev *dev;
+static struct bpf_offload_dev *dev;
 
 /**
  * This callback is invoked during BPF instruction verification.

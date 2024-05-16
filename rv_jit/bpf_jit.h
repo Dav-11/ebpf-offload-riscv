@@ -13,6 +13,9 @@
 #include <linux/filter.h>
 #include <asm/cacheflush.h>
 
+// set isa to 64 bit
+#define __riscv_xlen 64
+
 static inline bool rvc_enabled(void)
 {
 	return IS_ENABLED(CONFIG_RISCV_ISA_C);

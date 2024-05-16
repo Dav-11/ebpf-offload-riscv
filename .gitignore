@@ -20,3 +20,7 @@
 **/modules.order
 **/Module.symvers
 **/cmake-build-debug
+
+# linux kernel
+*.xz
+libs/linux
