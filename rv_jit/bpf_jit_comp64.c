@@ -84,6 +84,9 @@ static bool seen_reg(int reg, struct rv_jit_context *ctx)
 	return false;
 }
 
+// __set_bit(nr, addr)
+// The function sets the bit at the specified index nr in the bit array pointed to by addr to 1.
+
 static void mark_fp(struct rv_jit_context *ctx)
 {
 	__set_bit(RV_CTX_F_SEEN_S5, &ctx->flags);
@@ -1799,14 +1802,47 @@ out_be:
 	return 0;
 }
 
+/*
+ * Higher addresses
+ *
+ * +---------------+
+ * | RV_REG_S6     | <-- If RV_REG_S6 is used
+ * +---------------+
+ * | RV_REG_S5     | <-- If RV_REG_S5 is used
+ * +---------------+
+ * | RV_REG_S4     | <-- If RV_REG_S4 is used
+ * +---------------+
+ * | RV_REG_S3     | <-- If RV_REG_S3 is used
+ * +---------------+
+ * | RV_REG_S2     | <-- If RV_REG_S2 is used
+ * +---------------+
+ * | RV_REG_S1     | <-- If RV_REG_S1 is used
+ * +---------------+
+ * | RV_REG_FP     | <-- Frame pointer
+ * +---------------+
+ * | RV_REG_RA     | <-- Return address (if used)
+ * +---------------+
+ * |               |
+ * |     ...       | <-- Space for BPF stack
+ * |               |
+ * +---------------+
+ * | RV_REG_SP     | <-- Stack pointer
+ * +---------------+
+ * 
+ * Lower addresses
+*/
+
 void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 {
 	int i, stack_adjust = 0, store_offset, bpf_stack_adjust;
 
+	// compute the stack depth required for the BPF program, rounded up to the nearest multiple of 16
 	bpf_stack_adjust = round_up(ctx->prog->aux->stack_depth, 16);
 	if (bpf_stack_adjust)
-		mark_fp(ctx);
+		mark_fp(ctx); // sets bit RV_CTX_F_SEEN_S5 of ctx->flags to 1
 
+
+	// compute the stack depth required for the BPF program by adding 8 for each reg used, rounded up to the nearest multiple of 16
 	if (seen_reg(RV_REG_RA, ctx))
 		stack_adjust += 8;
 	stack_adjust += 8; /* RV_REG_FP */
@@ -1823,7 +1859,7 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	if (seen_reg(RV_REG_S6, ctx))
 		stack_adjust += 8;
 
-	stack_adjust = round_up(stack_adjust, 16);
+	stack_adjust = round_up(stack_adjust, 16); // round to 16
 	stack_adjust += bpf_stack_adjust;
 
 	store_offset = stack_adjust - 8;
@@ -1871,10 +1907,10 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 		store_offset -= 8;
 	}
 
-	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx);
+	emit_addi(RV_REG_FP, RV_REG_SP, stack_adjust, ctx); // RV_REG_FP = RV_REG_SP + stack_adjust => points to highest address considering registries saves
 
 	if (bpf_stack_adjust)
-		emit_addi(RV_REG_S5, RV_REG_SP, bpf_stack_adjust, ctx);
+		emit_addi(RV_REG_S5, RV_REG_SP, bpf_stack_adjust, ctx); // RV_REG_S5 = RV_REG_SP + bpf_stack_adjust => points to highest address of BPF vars
 
 	/* Program contains calls and tail calls, so RV_REG_TCC need
 	 * to be saved across calls.

@@ -26,7 +26,7 @@ static struct bpf_offload_dev *dev;
  * @param prev_insn_idx The index of the previous instruction
  * @return
  */
-int my_insn_hook(struct bpf_verifier_env *env, int insn_idx, int prev_insn_idx)
+int my_isn_verify(struct bpf_verifier_env *env, int insn_idx, int prev_insn_idx)
 {
 	// TODO: implement
 	return 0;
@@ -107,7 +107,7 @@ void my_destroy(struct bpf_prog *prog)
 }
 
 static const struct bpf_prog_offload_ops my_offload_ops = {
-	.insn_hook = my_insn_hook,
+	.insn_hook = my_isn_verify,
 	.finalize = my_finalize,
 	.replace_insn = my_replace_insn,
 	.remove_insns = my_remove_insns,

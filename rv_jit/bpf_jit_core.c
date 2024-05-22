@@ -28,6 +28,8 @@ static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 		/* BPF_LD | BPF_IMM | BPF_DW: skip the next instruction. */
 		if (ret > 0)
 			i++;
+
+		//  If offset is not NULL, it stores the current value of ctx->ninsns (the number of emitted instructions so far) in offset[i]
 		if (offset)
 			offset[i] = ctx->ninsns;
 		if (ret < 0)
@@ -50,9 +52,12 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_data *jit_data;
 	struct rv_jit_context *ctx;
 
-	if (!prog->jit_requested)
+	// if JIT not requested => returns original prog
+	if (!prog->jit_requested) 
 		return orig_prog;
 
+	// creates a copy of the original program and replaces the constant values with randomized or obfuscated values.
+	// Maybe we do not need ?
 	tmp = bpf_jit_blind_constants(prog);
 	if (IS_ERR(tmp))
 		return orig_prog;
@@ -61,6 +66,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		prog = tmp;
 	}
 
+	// get or create jit_data
 	jit_data = prog->aux->jit_data;
 	if (!jit_data) {
 		jit_data = kzalloc(sizeof(*jit_data), GFP_KERNEL);
@@ -73,6 +79,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 
 	ctx = &jit_data->ctx;
 
+	// if offset already exists => this is not the first pass
 	if (ctx->offset) {
 		extra_pass = true;
 		prog_size = sizeof(*ctx->insns) * ctx->ninsns;
@@ -86,11 +93,13 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		goto out_offset;
 	}
 
+	// replace BPF instructions with their corresponding RISC-V instructions
 	if (build_body(ctx, extra_pass, NULL)) {
 		prog = orig_prog;
 		goto out_offset;
 	}
 
+	// sets offset for each instruction to the number of instructions that have been emitted so far * 32
 	for (i = 0; i < prog->len; i++) {
 		prev_ninsns += 32;
 		ctx->offset[i] = prev_ninsns;
@@ -119,7 +128,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 				       sizeof(struct exception_table_entry);
 			prog_size = sizeof(*ctx->insns) * ctx->ninsns;
 
-			jit_data->ro_header = bpf_jit_binary_pack_alloc(
+			jit_data->ro_header = bpf_jit_binary_pack_alloc(   // ALLOCATES SPACE FOR PROGRAM => TODO: replace with custom function
 				prog_size + extable_size, &jit_data->ro_image,
 				sizeof(u32), &jit_data->header,
 				&jit_data->image, bpf_fill_ill_insns);

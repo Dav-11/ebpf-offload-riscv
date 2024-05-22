@@ -10,8 +10,8 @@
 #define _BPF_JIT_H
 
 #include <linux/bpf.h>
-#include <linux/filter.h>
-#include <asm/cacheflush.h>
+// #include <linux/filter.h>
+// #include <asm/cacheflush.h>
 
 // set isa to 64 bit
 #define __riscv_xlen 64

@@ -26,8 +26,8 @@ LINUX_PATH		:= $(abspath $(LIB_PATH)/linux)
 
 ebpf_offload_riscv-y := \
 	main.o \
-	arch/riscv/net/bpf_jit_core.o #\
-#	arch/riscv/net/bpf_jit_comp64.o
+	rv_jit/bpf_jit_comp64.o \
+	rv_jit/bpf_jit_core.o
 
 # hide output unless V=1
 ifeq ($(V),1)
