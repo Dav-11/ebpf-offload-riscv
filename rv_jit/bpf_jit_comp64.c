@@ -1543,8 +1543,8 @@ out_be:
 		u64 addr;
 
 		mark_call(ctx);
-		ret = bpf_jit_get_func_addr(ctx->prog, insn, extra_pass, &addr,
-					    &fixed_addr);
+		ret = bpf_jit_get_func_addr(ctx->prog, insn, extra_pass, &addr, 
+					    &fixed_addr); // TODO: check for external funcs (helpers or kfuncs and decide what to do)
 		if (ret < 0)
 			return ret;
 

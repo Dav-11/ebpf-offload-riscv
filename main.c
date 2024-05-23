@@ -2,12 +2,11 @@
 
 #define pr_fmt(fmt) "%s:%s(): " fmt, KBUILD_MODNAME, __func__
 
-#include <linux/bpf.h>
 #include <linux/bpf_verifier.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#include "arch/riscv/net/bpf_jit.h"
+#include "rv_jit/bpf_jit.h"
 
 MODULE_AUTHOR("Davide Collovigh");
 MODULE_DESCRIPTION("bpf_offload_dev");

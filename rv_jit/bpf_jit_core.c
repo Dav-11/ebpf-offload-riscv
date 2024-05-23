@@ -7,9 +7,9 @@
  */
 
 #include <linux/bpf.h>
-#include <linux/filter.h>
-#include <linux/memory.h>
-#include <asm/patch.h>
+// #include <linux/filter.h>
+// #include <linux/memory.h>
+// #include <asm/patch.h>
 #include "bpf_jit.h"
 
 /* Number of iterations to try until offsets converge. */
@@ -176,7 +176,7 @@ skip_init_ctx:
 	bpf_jit_build_epilogue(ctx);
 
 	if (bpf_jit_enable > 1)
-		bpf_jit_dump(prog->len, prog_size, pass, ctx->insns);
+		bpf_jit_dump(prog->len, prog_size, pass, ctx->insns); // TODO: reimplement
 
 	prog->bpf_func = (void *)ctx->ro_insns;
 	prog->jited = 1;
@@ -198,8 +198,10 @@ skip_init_ctx:
 		 */
 		bpf_flush_icache(jit_data->ro_header,
 				 ctx->ro_insns + ctx->ninsns);
+		
 		for (i = 0; i < prog->len; i++)
 			ctx->offset[i] = ninsns_rvoff(ctx->offset[i]);
+		
 		bpf_prog_fill_jited_linfo(prog, ctx->offset);
 out_offset:
 		kfree(ctx->offset);
