@@ -1,0 +1,21 @@
+{
+    "configurations": [
+        {
+            "name": "vscode_config",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "${workspaceFolder}/libs/linux/include",
+                "${workspaceFolder}/libs/linux/arch/${env:ARCH}/include"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c99",
+            "intelliSenseMode": "gcc-x86"
+        }
+    ],
+    "version": 4
+}

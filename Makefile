@@ -1,6 +1,6 @@
-KERNEL_VERSION			:= $(shell uname -r)
+KERNEL_VERSION			:= 6.8.0-31-generic #$(shell uname -r)
 
-KERNEL_VERSION_NUMBER_F	:= $(shell uname -r | cut -d- -f1)
+KERNEL_VERSION_NUMBER_F	:= $(shell echo "$(KERNEL_VERSION_NUMBER_F)" | cut -d- -f1)
 
 # Define a function to remove trailing ".0" (if needed)
 ifeq ($(findstring .0,$(KERNEL_VERSION_NUMBER_F)), $(KERNEL_VERSION_NUMBER_F))
@@ -88,7 +88,7 @@ format:
 	@echo
 	@echo "--- Formatting the code ---"
 	@echo
-	clang-format -i -style=file arch/riscv/net/*.c arch/riscv/net/*.h
+	clang-format -i -style=file rv_jit/*.c rv_jit/*.h *.c
 
 clean-module:
 	@echo

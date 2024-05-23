@@ -90,7 +90,11 @@ int my_prepare(struct bpf_prog *prog)
  */
 int my_translate(struct bpf_prog *prog)
 {
+	struct bpf_prog *final = NULL;
+
+	final = bpf_int_jit_compile(prog);
 	// TODO: implement
+
 	return 0;
 }
 

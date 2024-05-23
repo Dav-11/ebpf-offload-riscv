@@ -11,6 +11,7 @@
 // #include <linux/memory.h>
 // #include <asm/patch.h>
 #include "bpf_jit.h"
+#include "memory.h"
 
 /* Number of iterations to try until offsets converge. */
 #define NR_JIT_ITERATIONS 32
@@ -53,11 +54,11 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	struct rv_jit_context *ctx;
 
 	// if JIT not requested => returns original prog
-	if (!prog->jit_requested) 
+	if (!prog->jit_requested)
 		return orig_prog;
 
 	// creates a copy of the original program and replaces the constant values with randomized or obfuscated values.
-	// Maybe we do not need ?
+	// Maybe we do not need it?
 	tmp = bpf_jit_blind_constants(prog);
 	if (IS_ERR(tmp))
 		return orig_prog;
@@ -121,17 +122,23 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		bpf_jit_build_epilogue(ctx);
 
 		if (ctx->ninsns == prev_ninsns) {
+			
 			if (jit_data->header)
 				break;
+			
 			/* obtain the actual image size */
 			extable_size = prog->aux->num_exentries *
 				       sizeof(struct exception_table_entry);
+			
 			prog_size = sizeof(*ctx->insns) * ctx->ninsns;
 
-			jit_data->ro_header = bpf_jit_binary_pack_alloc(   // ALLOCATES SPACE FOR PROGRAM => TODO: replace with custom function
-				prog_size + extable_size, &jit_data->ro_image,
-				sizeof(u32), &jit_data->header,
-				&jit_data->image, bpf_fill_ill_insns);
+			// ALLOCATES SPACE FOR PROGRAM
+			jit_data->ro_header = rv_jit_binary_alloc( 
+					prog_size + extable_size,
+					&jit_data->ro_image, sizeof(u32),
+					&jit_data->header, &jit_data->image
+			);
+
 			if (!jit_data->ro_header) {
 				prog = orig_prog;
 				goto out_offset;
@@ -175,21 +182,22 @@ skip_init_ctx:
 	}
 	bpf_jit_build_epilogue(ctx);
 
-	if (bpf_jit_enable > 1)
-		bpf_jit_dump(prog->len, prog_size, pass, ctx->insns); // TODO: reimplement
+	// if (bpf_jit_enable > 1) TODO: introduce var to enable/disable dumping
+	rv_bpf_jit_dump(prog->len, prog_size, pass, ctx->insns);
 
 	prog->bpf_func = (void *)ctx->ro_insns;
 	prog->jited = 1;
 	prog->jited_len = prog_size;
 
 	if (!prog->is_func || extra_pass) {
-		if (WARN_ON(bpf_jit_binary_pack_finalize(
+		if (WARN_ON(rv_jit_binary_pack_finalize(
 			    prog, jit_data->ro_header, jit_data->header))) {
 			/* ro_header has been freed */
 			jit_data->ro_header = NULL;
 			prog = orig_prog;
 			goto out_offset;
 		}
+
 		/*
 		 * The instructions have now been copied to the ROX region from
 		 * where they will execute.
@@ -198,10 +206,10 @@ skip_init_ctx:
 		 */
 		bpf_flush_icache(jit_data->ro_header,
 				 ctx->ro_insns + ctx->ninsns);
-		
+
 		for (i = 0; i < prog->len; i++)
 			ctx->offset[i] = ninsns_rvoff(ctx->offset[i]);
-		
+
 		bpf_prog_fill_jited_linfo(prog, ctx->offset);
 out_offset:
 		kfree(ctx->offset);
@@ -248,7 +256,7 @@ void *bpf_arch_text_copy(void *dst, void *src, size_t len)
 	int ret;
 
 	mutex_lock(&text_mutex);
-	ret = patch_text_nosync(dst, src, len);
+	ret = rv_patch_text_mem(dst, src, len);
 	mutex_unlock(&text_mutex);
 
 	if (ret)
