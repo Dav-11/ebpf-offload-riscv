@@ -1,8 +1,13 @@
 
 
-#include "memory.h"
+#include <linux/slab.h>
+#include <linux/spinlock.h>
+#include "jit.h"
 
-static int init_arena(void)
+// Global variable
+static struct memory_arena rv_bpf_arena;
+
+int init_arena(void)
 {
 	// initialize spinlock
 	spin_lock_init(&rv_bpf_arena.lock);
@@ -19,13 +24,13 @@ static int init_arena(void)
 	return 0;
 }
 
-static void destroy_arena(void)
+void destroy_arena(void)
 {
 	kfree(rv_bpf_arena.base);
 	pr_info("Arena deinitialized\n");
 }
 
-static void *alloc_arena(size_t size)
+void *alloc_arena(size_t size)
 {
 	void *ptr = NULL;
 	unsigned long flags = 0;

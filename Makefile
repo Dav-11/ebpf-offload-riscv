@@ -1,4 +1,10 @@
-KERNEL_VERSION	:= 6.8.0#$(shell uname -r | cut -d- -f1)
+KERNEL_VERSION	:= 6.8.0
+
+ifeq ($(shell uname -s),Linux)
+  
+  # If the OS is Linux, set KERNEL_VERSION to the current kernel version
+  KERNEL_VERSION := $(shell uname -r | cut -d- -f1)
+endif
 
 # Define a function to remove trailing ".0" (if needed)
 ifeq ($(findstring .0,$(KERNEL_VERSION)), $(KERNEL_VERSION))
@@ -26,8 +32,10 @@ CONFIG_ARCH_RV64I := y
 
 ebpf_offload_riscv-y := \
 	main.o \
-	rv_jit/bpf_jit_core.o \
-	rv_jit/code_gen.o \
+	rv_jit/jit_core.o \
+	rv_jit/jit_regs.o \
+	rv_jit/jit_codegen_generic.o \
+	rv_jit/bpf_jit_comp64.o \
 	rv_jit/memory.o \
 	rv_jit/utils.o
 

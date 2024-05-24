@@ -156,14 +156,14 @@ skip_init_ctx:
 			goto out_offset;
 		}
 
-		/*
-         * The instructions have now been copied to the ROX region from
-         * where they will execute.
-         * Write any modified data cache blocks out to memory and
-         * invalidate the corresponding blocks in the instruction cache.
-         */
-		bpf_flush_icache(jit_data->ro_header,
-				 ctx->ro_insns + ctx->ninsns);
+		// /*
+        //  * The instructions have now been copied to the ROX region from
+        //  * where they will execute.
+        //  * Write any modified data cache blocks out to memory and
+        //  * invalidate the corresponding blocks in the instruction cache.
+        //  */
+		// bpf_flush_icache(jit_data->ro_header,
+		// 		 ctx->ro_insns + ctx->ninsns);
 
 		for (i = 0; i < prog->len; i++)
 			ctx->offset[i] = ninsns_rvoff(ctx->offset[i]);
@@ -191,7 +191,7 @@ out_free_hdr:
 	goto out_offset;
 }
 
-static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
+int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 {
 	const struct bpf_prog *prog = ctx->prog;
 	int i;
@@ -214,7 +214,7 @@ static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 	return 0;
 }
 
-static inline int invert_bpf_cond(u8 cond)
+inline int invert_bpf_cond(u8 cond)
 {
 	switch (cond) {
 	case BPF_JEQ:

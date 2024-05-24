@@ -5,9 +5,7 @@
  *
  */
 
-//#include <linux/bitfield.h>
-//#include <linux/bpf.h>
-//#include <linux/filter.h>
+#include <linux/bitfield.h>
 //#include <linux/memory.h>
 //#include <linux/stop_machine.h>
 //#include <asm/patch.h>
