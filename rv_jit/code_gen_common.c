@@ -1,106 +1,19 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Common functionality for RV32 and RV64 BPF JIT compilers
- *
- * Copyright (c) 2019 Björn Töpel <bjorn.topel@gmail.com>
- *
- */
+//
+// Created by Davide Collovigh on 24/05/24.
+//
 
-#ifndef _BPF_JIT_H
-#define _BPF_JIT_H
+#include "jit.h"
 
-#include <linux/bpf.h>
-// #include <linux/filter.h>
-// #include <asm/cacheflush.h>
-
-// set isa to 64 bit
-#define __riscv_xlen 64
-
-static inline bool rvc_enabled(void)
-{
-	return IS_ENABLED(CONFIG_RISCV_ISA_C);
-}
-
-enum {
-	RV_REG_ZERO = 0, /* The constant value 0 */
-	RV_REG_RA = 1, /* Return address */
-	RV_REG_SP = 2, /* Stack pointer */
-	RV_REG_GP = 3, /* Global pointer */
-	RV_REG_TP = 4, /* Thread pointer */
-	RV_REG_T0 = 5, /* Temporaries */
-	RV_REG_T1 = 6,
-	RV_REG_T2 = 7,
-	RV_REG_FP = 8, /* Saved register/frame pointer */
-	RV_REG_S1 = 9, /* Saved register */
-	RV_REG_A0 = 10, /* Function argument/return values */
-	RV_REG_A1 = 11, /* Function arguments */
-	RV_REG_A2 = 12,
-	RV_REG_A3 = 13,
-	RV_REG_A4 = 14,
-	RV_REG_A5 = 15,
-	RV_REG_A6 = 16,
-	RV_REG_A7 = 17,
-	RV_REG_S2 = 18, /* Saved registers */
-	RV_REG_S3 = 19,
-	RV_REG_S4 = 20,
-	RV_REG_S5 = 21,
-	RV_REG_S6 = 22,
-	RV_REG_S7 = 23,
-	RV_REG_S8 = 24,
-	RV_REG_S9 = 25,
-	RV_REG_S10 = 26,
-	RV_REG_S11 = 27,
-	RV_REG_T3 = 28, /* Temporaries */
-	RV_REG_T4 = 29,
-	RV_REG_T5 = 30,
-	RV_REG_T6 = 31,
-};
-
-static inline bool is_creg(u8 reg)
-{
-	return (1 << reg) & (BIT(RV_REG_FP) | BIT(RV_REG_S1) | BIT(RV_REG_A0) |
-			     BIT(RV_REG_A1) | BIT(RV_REG_A2) | BIT(RV_REG_A3) |
-			     BIT(RV_REG_A4) | BIT(RV_REG_A5));
-}
-
-struct rv_jit_context {
-	struct bpf_prog *prog;
-	u16 *insns; /* RV insns */
-	u16 *ro_insns;
-	int ninsns;
-	int prologue_len;
-	int epilogue_offset;
-	int *offset; /* BPF to RV */
-	int nexentries;
-	unsigned long flags;
-	int stack_size;
-};
-
-/* Convert from ninsns to bytes. */
 static inline int ninsns_rvoff(int ninsns)
 {
 	return ninsns << 1;
 }
-
-struct rv_jit_data {
-	struct bpf_binary_header *header;
-	struct bpf_binary_header *ro_header;
-	u8 *image;
-	u8 *ro_image;
-	struct rv_jit_context ctx;
-};
 
 static inline void bpf_fill_ill_insns(void *area, unsigned int size)
 {
 	memset(area, 0, size);
 }
 
-static inline void bpf_flush_icache(void *start, void *end)
-{
-	flush_icache_range((unsigned long)start, (unsigned long)end);
-}
-
-/* Emit a 4-byte riscv instruction. */
 static inline void emit(const u32 insn, struct rv_jit_context *ctx)
 {
 	if (ctx->insns) {
@@ -111,7 +24,6 @@ static inline void emit(const u32 insn, struct rv_jit_context *ctx)
 	ctx->ninsns += 2;
 }
 
-/* Emit a 2-byte riscv compressed instruction. */
 static inline void emitc(const u16 insn, struct rv_jit_context *ctx)
 {
 	BUILD_BUG_ON(!rvc_enabled());
@@ -129,33 +41,19 @@ static inline int epilogue_offset(struct rv_jit_context *ctx)
 	return ninsns_rvoff(to - from);
 }
 
-/* Return -1 or inverted cond. */
-static inline int invert_bpf_cond(u8 cond)
+static inline int rv_offset(int insn, int off, struct rv_jit_context *ctx)
 {
-	switch (cond) {
-	case BPF_JEQ:
-		return BPF_JNE;
-	case BPF_JGT:
-		return BPF_JLE;
-	case BPF_JLT:
-		return BPF_JGE;
-	case BPF_JGE:
-		return BPF_JLT;
-	case BPF_JLE:
-		return BPF_JGT;
-	case BPF_JNE:
-		return BPF_JEQ;
-	case BPF_JSGT:
-		return BPF_JSLE;
-	case BPF_JSLT:
-		return BPF_JSGE;
-	case BPF_JSGE:
-		return BPF_JSLT;
-	case BPF_JSLE:
-		return BPF_JSGT;
-	}
-	return -1;
+	int from, to;
+
+	off++; /* BPF branch is from PC+1, RV is from PC */
+	from = (insn > 0) ? ctx->offset[insn - 1] : ctx->prologue_len;
+	to = (insn + off > 0) ? ctx->offset[insn + off - 1] : ctx->prologue_len;
+	return ninsns_rvoff(to - from);
 }
+
+/*
+ * vars checks
+ */
 
 static inline bool is_6b_int(long val)
 {
@@ -212,17 +110,9 @@ static inline bool is_21b_int(long val)
 	return -(1L << 20) <= val && val < (1L << 20);
 }
 
-static inline int rv_offset(int insn, int off, struct rv_jit_context *ctx)
-{
-	int from, to;
-
-	off++; /* BPF branch is from PC+1, RV is from PC */
-	from = (insn > 0) ? ctx->offset[insn - 1] : ctx->prologue_len;
-	to = (insn + off > 0) ? ctx->offset[insn + off - 1] : ctx->prologue_len;
-	return ninsns_rvoff(to - from);
-}
-
-/* Instruction formats. */
+/*
+ * Instruction formats.
+ */
 
 static inline u32 rv_r_insn(u8 funct7, u8 rs2, u8 rs1, u8 funct3, u8 rd,
 			    u8 opcode)
@@ -277,7 +167,9 @@ static inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1,
 	return rv_r_insn(funct7, rs2, rs1, funct3, rd, opcode);
 }
 
-/* RISC-V compressed instruction formats. */
+/*
+ * RISC-V compressed instruction formats.
+ */
 
 static inline u16 rv_cr_insn(u8 funct4, u8 rd, u8 rs2, u8 op)
 {
@@ -728,13 +620,6 @@ static inline u16 rvc_swsp(u32 imm8, u8 rs2)
 	return rv_css_insn(0x6, imm, rs2, 0x2);
 }
 
-/*
- * RV64-only instructions.
- *
- * These instructions are not available on RV32.  Wrap them below a #if to
- * ensure that the RV32 JIT doesn't emit any of these instructions.
- */
-
 #if __riscv_xlen == 64
 
 static inline u32 rv_addiw(u8 rd, u8 rs1, u16 imm11_0)
@@ -1097,12 +982,3 @@ static inline void emit_subw(u8 rd, u8 rs1, u8 rs2, struct rv_jit_context *ctx)
 }
 
 #endif /* __riscv_xlen == 64 */
-
-void bpf_jit_build_prologue(struct rv_jit_context *ctx);
-void bpf_jit_build_epilogue(struct rv_jit_context *ctx);
-struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog);
-
-int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
-		      bool extra_pass);
-
-#endif /* _BPF_JIT_H */

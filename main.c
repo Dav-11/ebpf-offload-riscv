@@ -6,7 +6,8 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 
-#include "rv_jit/bpf_jit.h"
+#include "rv_jit/jit.h"
+#include "rv_jit/memory.h"
 
 MODULE_AUTHOR("Davide Collovigh");
 MODULE_DESCRIPTION("bpf_offload_dev");
@@ -90,10 +91,11 @@ int my_prepare(struct bpf_prog *prog)
  */
 int my_translate(struct bpf_prog *prog)
 {
-	struct bpf_prog *final = NULL;
+	struct bpf_prog *translated = NULL;
 
-	final = bpf_int_jit_compile(prog);
-	// TODO: implement
+	translated = my_bpf_int_jit_compile(prog);
+
+	prog = translated;
 
 	return 0;
 }
@@ -123,10 +125,16 @@ static int __init ebpf_riscv_offload_init(void)
 {
 	pr_info("Loaded module\n");
 
+	// init device
 	dev = NULL;
-	int err;
-
 	dev = bpf_offload_dev_create(&my_offload_ops, NULL);
+
+	// init arena memory
+	int err = init_arena();
+	if (err) {
+		pr_err("Could not init arena, exit");
+		return err;
+	}
 
 	return 0;
 }
@@ -134,6 +142,9 @@ static int __init ebpf_riscv_offload_init(void)
 static void __exit ebpf_riscv_offload_exit(void)
 {
 	bpf_offload_dev_destroy(dev);
+
+	// destroy arena
+	destroy_arena();
 
 	pr_info("Removed module\n");
 }

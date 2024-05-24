@@ -1,21 +1,19 @@
-KERNEL_VERSION			:= 6.8.0-31-generic #$(shell uname -r)
-
-KERNEL_VERSION_NUMBER_F	:= $(shell echo "$(KERNEL_VERSION_NUMBER_F)" | cut -d- -f1)
+KERNEL_VERSION	:= 6.8.0#$(shell uname -r | cut -d- -f1)
 
 # Define a function to remove trailing ".0" (if needed)
-ifeq ($(findstring .0,$(KERNEL_VERSION_NUMBER_F)), $(KERNEL_VERSION_NUMBER_F))
-  KERNEL_VERSION_NUMBER := $(KERNEL_VERSION_NUMBER_F)
+ifeq ($(findstring .0,$(KERNEL_VERSION)), $(KERNEL_VERSION))
+  KERNEL_VERSION_NUMBER := $(KERNEL_VERSION)
 else
-  KERNEL_VERSION_NUMBER := $(subst .0,,$(KERNEL_VERSION_NUMBER_F))
+  KERNEL_VERSION_NUMBER := $(subst .0,,$(KERNEL_VERSION))
 endif
 
-KERNEL_VERSION_MAJOR	:= $(shell echo $(KERNEL_VERSION_NUMBER_F) | cut -d. -f1)
+KERNEL_VERSION_MAJOR	:= $(shell echo $(KERNEL_VERSION) | cut -d. -f1)
 
 KERNEL_URL				:= https://cdn.kernel.org/pub/linux/kernel/v$(KERNEL_VERSION_MAJOR).x/linux-$(KERNEL_VERSION_NUMBER).tar.xz
 UNTAR_DIR				:= linux-$(KERNEL_VERSION_NUMBER)
 TAR_FILE				:= $(UNTAR_DIR).tar.xz
 
-KDIR ?= /lib/modules/$(KERNEL_VERSION)/build
+KDIR ?= /lib/modules/$(shell uname -r)/build
 
 PWD				:= $(shell pwd)
 EXTRA_CFLAGS	+= -DDEBUG
@@ -24,10 +22,20 @@ obj-m			+= ebpf_offload_riscv.o
 LIB_PATH		:= $(abspath ./libs)
 LINUX_PATH		:= $(abspath $(LIB_PATH)/linux)
 
+CONFIG_ARCH_RV64I := y
+
 ebpf_offload_riscv-y := \
 	main.o \
-	rv_jit/bpf_jit_comp64.o \
-	rv_jit/bpf_jit_core.o
+	rv_jit/bpf_jit_core.o \
+	rv_jit/code_gen.o \
+	rv_jit/memory.o \
+	rv_jit/utils.o
+
+ ifeq ($(CONFIG_ARCH_RV64I),y)
+ 	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp64.o
+ else
+ 	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp32.o
+ endif
 
 # hide output unless V=1
 ifeq ($(V),1)
@@ -42,11 +50,11 @@ else
 	MAKEFLAGS += --no-print-directory
 endif
 
-all: $(LINUX_PATH) format ebpf_offload_riscv.ko install load
+all: $(LINUX_PATH) format #ebpf_offload_riscv.ko install load
 
 $(LINUX_PATH):
-	$(call msg,WGET,$(KERNEL_URL))
-	$(Q) wget -q $(KERNEL_URL)
+	$(call msg,CURL,$(KERNEL_URL))
+	$(Q) curl --output $(TAR_FILE) -s $(KERNEL_URL)
 
 	$(call msg,UNTAR,$(TAR_FILE))
 	$(Q) tar -xf $(TAR_FILE)

@@ -1,50 +1,10 @@
-// SPDX-License-Identifier: GPL-2.0
-/*
- * Common functionality for RV32 and RV64 BPF JIT compilers
- *
- * Copyright (c) 2019 Björn Töpel <bjorn.topel@gmail.com>
- *
- */
+//
+// Created by Davide Collovigh on 24/05/24.
+//
 
-#include <linux/bpf.h>
-// #include <linux/filter.h>
-// #include <linux/memory.h>
-// #include <asm/patch.h>
-#include "bpf_jit.h"
-#include "memory.h"
+#include "jit.h"
 
-/* Number of iterations to try until offsets converge. */
-#define NR_JIT_ITERATIONS 32
-
-static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
-{
-	const struct bpf_prog *prog = ctx->prog;
-	int i;
-
-	for (i = 0; i < prog->len; i++) {
-		const struct bpf_insn *insn = &prog->insnsi[i];
-		int ret;
-
-		ret = bpf_jit_emit_insn(insn, ctx, extra_pass);
-		/* BPF_LD | BPF_IMM | BPF_DW: skip the next instruction. */
-		if (ret > 0)
-			i++;
-
-		//  If offset is not NULL, it stores the current value of ctx->ninsns (the number of emitted instructions so far) in offset[i]
-		if (offset)
-			offset[i] = ctx->ninsns;
-		if (ret < 0)
-			return ret;
-	}
-	return 0;
-}
-
-bool bpf_jit_needs_zext(void)
-{
-	return true;
-}
-
-struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
+struct bpf_prog *my_bpf_int_jit_compile(struct bpf_prog *prog)
 {
 	unsigned int prog_size = 0, extable_size = 0;
 	bool tmp_blinded = false, extra_pass = false;
@@ -122,22 +82,20 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		bpf_jit_build_epilogue(ctx);
 
 		if (ctx->ninsns == prev_ninsns) {
-			
 			if (jit_data->header)
 				break;
-			
+
 			/* obtain the actual image size */
 			extable_size = prog->aux->num_exentries *
 				       sizeof(struct exception_table_entry);
-			
+
 			prog_size = sizeof(*ctx->insns) * ctx->ninsns;
 
 			// ALLOCATES SPACE FOR PROGRAM
-			jit_data->ro_header = rv_jit_binary_alloc( 
-					prog_size + extable_size,
-					&jit_data->ro_image, sizeof(u32),
-					&jit_data->header, &jit_data->image
-			);
+			jit_data->ro_header = rv_jit_binary_alloc(
+				prog_size + extable_size, &jit_data->ro_image,
+				sizeof(u32), &jit_data->header,
+				&jit_data->image);
 
 			if (!jit_data->ro_header) {
 				prog = orig_prog;
@@ -145,18 +103,18 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 			}
 
 			/*
-			 * Use the image(RW) for writing the JITed instructions. But also save
-			 * the ro_image(RX) for calculating the offsets in the image. The RW
-			 * image will be later copied to the RX image from where the program
-			 * will run. The bpf_jit_binary_pack_finalize() will do this copy in the
-			 * final step.
-			 */
+             * Use the image(RW) for writing the JITed instructions. But also save
+             * the ro_image(RX) for calculating the offsets in the image. The RW
+             * image will be later copied to the RX image from where the program
+             * will run. The bpf_jit_binary_pack_finalize() will do this copy in the
+             * final step.
+             */
 			ctx->ro_insns = (u16 *)jit_data->ro_image;
 			ctx->insns = (u16 *)jit_data->image;
 			/*
-			 * Now, when the image is allocated, the image can
-			 * potentially shrink more (auipc/jalr -> jal).
-			 */
+             * Now, when the image is allocated, the image can
+             * potentially shrink more (auipc/jalr -> jal).
+             */
 		}
 		prev_ninsns = ctx->ninsns;
 	}
@@ -199,11 +157,11 @@ skip_init_ctx:
 		}
 
 		/*
-		 * The instructions have now been copied to the ROX region from
-		 * where they will execute.
-		 * Write any modified data cache blocks out to memory and
-		 * invalidate the corresponding blocks in the instruction cache.
-		 */
+         * The instructions have now been copied to the ROX region from
+         * where they will execute.
+         * Write any modified data cache blocks out to memory and
+         * invalidate the corresponding blocks in the instruction cache.
+         */
 		bpf_flush_icache(jit_data->ro_header,
 				 ctx->ro_insns + ctx->ninsns);
 
@@ -233,69 +191,52 @@ out_free_hdr:
 	goto out_offset;
 }
 
-u64 bpf_jit_alloc_exec_limit(void)
+static int build_body(struct rv_jit_context *ctx, bool extra_pass, int *offset)
 {
-	return BPF_JIT_REGION_SIZE;
-}
+	const struct bpf_prog *prog = ctx->prog;
+	int i;
 
-void *bpf_jit_alloc_exec(unsigned long size)
-{
-	return __vmalloc_node_range(size, PAGE_SIZE, BPF_JIT_REGION_START,
-				    BPF_JIT_REGION_END, GFP_KERNEL, PAGE_KERNEL,
-				    0, NUMA_NO_NODE,
-				    __builtin_return_address(0));
-}
+	for (i = 0; i < prog->len; i++) {
+		const struct bpf_insn *insn = &prog->insnsi[i];
+		int ret;
 
-void bpf_jit_free_exec(void *addr)
-{
-	return vfree(addr);
-}
+		ret = bpf_jit_emit_insn(insn, ctx, extra_pass);
+		/* BPF_LD | BPF_IMM | BPF_DW: skip the next instruction. */
+		if (ret > 0)
+			i++;
 
-void *bpf_arch_text_copy(void *dst, void *src, size_t len)
-{
-	int ret;
-
-	mutex_lock(&text_mutex);
-	ret = rv_patch_text_mem(dst, src, len);
-	mutex_unlock(&text_mutex);
-
-	if (ret)
-		return ERR_PTR(-EINVAL);
-
-	return dst;
-}
-
-int bpf_arch_text_invalidate(void *dst, size_t len)
-{
-	int ret;
-
-	mutex_lock(&text_mutex);
-	ret = patch_text_set_nosync(dst, 0, len);
-	mutex_unlock(&text_mutex);
-
-	return ret;
-}
-
-void bpf_jit_free(struct bpf_prog *prog)
-{
-	if (prog->jited) {
-		struct rv_jit_data *jit_data = prog->aux->jit_data;
-		struct bpf_binary_header *hdr;
-
-		/*
-		 * If we fail the final pass of JIT (from jit_subprogs),
-		 * the program may not be finalized yet. Call finalize here
-		 * before freeing it.
-		 */
-		if (jit_data) {
-			bpf_jit_binary_pack_finalize(prog, jit_data->ro_header,
-						     jit_data->header);
-			kfree(jit_data);
-		}
-		hdr = bpf_jit_binary_pack_hdr(prog);
-		bpf_jit_binary_pack_free(hdr, NULL);
-		WARN_ON_ONCE(!bpf_prog_kallsyms_verify_off(prog));
+		//  If offset is not NULL, it stores the current value of ctx->ninsns (the number of emitted instructions so far) in offset[i]
+		if (offset)
+			offset[i] = ctx->ninsns;
+		if (ret < 0)
+			return ret;
 	}
+	return 0;
+}
 
-	bpf_prog_unlock_free(prog);
+static inline int invert_bpf_cond(u8 cond)
+{
+	switch (cond) {
+	case BPF_JEQ:
+		return BPF_JNE;
+	case BPF_JGT:
+		return BPF_JLE;
+	case BPF_JLT:
+		return BPF_JGE;
+	case BPF_JGE:
+		return BPF_JLT;
+	case BPF_JLE:
+		return BPF_JGT;
+	case BPF_JNE:
+		return BPF_JEQ;
+	case BPF_JSGT:
+		return BPF_JSLE;
+	case BPF_JSLT:
+		return BPF_JSGE;
+	case BPF_JSGE:
+		return BPF_JSLT;
+	case BPF_JSLE:
+		return BPF_JSGT;
+	}
+	return -1;
 }

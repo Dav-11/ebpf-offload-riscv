@@ -1,7 +1,6 @@
 
-#include "utils.h"
+
 #include "memory.h"
-#include "bpf_jit.h" 
 
 static int init_arena(void)
 {
@@ -86,8 +85,8 @@ rv_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 
 /* Copy JITed text from rw_header to its final location, the ro_header. */
 int rv_jit_binary_pack_finalize(struct bpf_prog *prog,
-				 struct bpf_binary_header *ro_header,
-				 struct bpf_binary_header *rw_header)
+				struct bpf_binary_header *ro_header,
+				struct bpf_binary_header *rw_header)
 {
 	void *ptr;
 
@@ -103,7 +102,6 @@ int rv_jit_binary_pack_finalize(struct bpf_prog *prog,
 	return 0;
 }
 
-
 int rv_patch_text_mem(void *addr, const void *insns, size_t len)
 {
 	memcpy(addr, insns, len);
@@ -111,24 +109,22 @@ int rv_patch_text_mem(void *addr, const void *insns, size_t len)
 	return 0;
 }
 
-
-
-// /** 
-//  * Allocate jit binary from bpf_prog_pack allocator.
-//  * Since the allocated memory is RO+X, the JIT engine cannot write directly
-//  * to the memory. To solve this problem, a RW buffer is also allocated at
-//  * as the same time. The JIT engine should calculate offsets based on the
-//  * RO memory address, but write JITed program to the RW buffer. Once the
-//  * JIT engine finishes, it calls bpf_jit_binary_pack_finalize, which copies
-//  * the JITed program to the RO memory.
-//  * 
-//  * @param proglen		length of the program
-//  * @param image_ptr		A pointer to store the address of the allocated read-only (RO) memory region.
-//  * @param alignment		alignment of the allocated memory
-//  * @param rw_header		A pointer to store the address of the allocated read-write (RW) header.
-//  * @param rw_image		A pointer to store the address of the allocated read-write (RW) memory region.
-//  * @param bpf_fill_ill_insns	A function pointer to fill the allocated memory with illegal instructions.
-//  */
+/**
+  * Allocate jit binary from bpf_prog_pack allocator.
+  * Since the allocated memory is RO+X, the JIT engine cannot write directly
+  * to the memory. To solve this problem, a RW buffer is also allocated at
+  * as the same time. The JIT engine should calculate offsets based on the
+  * RO memory address, but write JITed program to the RW buffer. Once the
+  * JIT engine finishes, it calls bpf_jit_binary_pack_finalize, which copies
+  * the JITed program to the RO memory.
+  *
+  * @param proglen		length of the program
+  * @param image_ptr		A pointer to store the address of the allocated read-only (RO) memory region.
+  * @param alignment		alignment of the allocated memory
+  * @param rw_header		A pointer to store the address of the allocated read-write (RW) header.
+  * @param rw_image		A pointer to store the address of the allocated read-write (RW) memory region.
+  * @param bpf_fill_ill_insns	A function pointer to fill the allocated memory with illegal instructions.
+  */
 // struct bpf_binary_header *my_bpf_jit_binary_pack_alloc(
 // 	unsigned int proglen, u8 **image_ptr, unsigned int alignment,
 // 	struct bpf_binary_header **rw_header, u8 **rw_image,
@@ -136,13 +132,13 @@ int rv_patch_text_mem(void *addr, const void *insns, size_t len)
 // {
 // 	struct bpf_binary_header *ro_header;
 // 	u32 size, hole, start;
-
+//
 // 	WARN_ON_ONCE(!is_power_of_2(alignment) ||
 // 		     alignment > BPF_IMAGE_ALIGNMENT);
-
+//
 // 	/* add 16 bytes for a random section of illegal instructions */
 // 	size = round_up(proglen + sizeof(*ro_header) + 16, BPF_PROG_CHUNK_SIZE);
-
+//
 // 	if (bpf_jit_charge_modmem(size))
 // 		return NULL;
 // 	ro_header = bpf_prog_pack_alloc(size, bpf_fill_ill_insns);
@@ -150,24 +146,24 @@ int rv_patch_text_mem(void *addr, const void *insns, size_t len)
 // 		bpf_jit_uncharge_modmem(size);
 // 		return NULL;
 // 	}
-
+//
 // 	*rw_header = kvmalloc(size, GFP_KERNEL);
 // 	if (!*rw_header) {
 // 		bpf_prog_pack_free(ro_header, size);
 // 		bpf_jit_uncharge_modmem(size);
 // 		return NULL;
 // 	}
-
+//
 // 	/* Fill space with illegal/arch-dep instructions. */
 // 	bpf_fill_ill_insns(*rw_header, size);
 // 	(*rw_header)->size = size;
-
+//
 // 	hole = min_t(unsigned int, size - (proglen + sizeof(*ro_header)),
 // 		     BPF_PROG_CHUNK_SIZE - sizeof(*ro_header));
 // 	start = get_random_u32_below(hole) & ~(alignment - 1);
-
+//
 // 	*image_ptr = &ro_header->image[start];
 // 	*rw_image = &(*rw_header)->image[start];
-
+//
 // 	return ro_header;
 // }

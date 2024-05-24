@@ -1,9 +1,11 @@
 
-#ifndef _BPF_RV_MEM_H
-#define _BPF_RV_MEM_H
+#ifndef EBPF_OFFLOAD_RISCV_MEM_H
+#define EBPF_OFFLOAD_RISCV_MEM_H
 
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include "jit.h"
+#include "utils.h"
 
 /*
  * BPF program pack allocator.
@@ -61,7 +63,7 @@ rv_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
 		    struct bpf_binary_header **rw_header, u8 **rw_image);
 
 int rv_jit_binary_pack_finalize(struct bpf_prog *prog,
-				 struct bpf_binary_header *ro_header,
-				 struct bpf_binary_header *rw_header);
+				struct bpf_binary_header *ro_header,
+				struct bpf_binary_header *rw_header);
 
-#endif /* _BPF_RV_MEM_H */
+#endif /* EBPF_OFFLOAD_RISCV_MEM_H */
