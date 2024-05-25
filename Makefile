@@ -39,11 +39,11 @@ ebpf_offload_riscv-y := \
 	rv_jit/memory.o \
 	rv_jit/utils.o
 
- ifeq ($(CONFIG_ARCH_RV64I),y)
- 	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp64.o
- else
- 	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp32.o
- endif
+ifeq ($(CONFIG_ARCH_RV64I),y)
+	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp64.o
+else
+	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp32.o
+endif
 
 # hide output unless V=1
 ifeq ($(V),1)
