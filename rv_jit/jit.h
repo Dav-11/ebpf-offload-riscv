@@ -11,7 +11,8 @@
 
 // constants
 
-#define NR_JIT_ITERATIONS 32 // Number of iterations to try until offsets converge.
+#define NR_JIT_ITERATIONS \
+	32 // Number of iterations to try until offsets converge.
 #define __riscv_xlen 64 //TODO: make dynamic
 #define CONFIG_RISCV_ISA_C 1
 
@@ -105,8 +106,13 @@ void *alloc_arena(size_t size);
 void *free_arena(size_t size);
 
 // BPF program pack funcs
-struct bpf_binary_header *rv_jit_binary_alloc(unsigned int proglen, u8 **image_ptr, unsigned int alignment, struct bpf_binary_header **rw_header, u8 **rw_image);
-int rv_jit_binary_pack_finalize(struct bpf_prog *prog, struct bpf_binary_header *ro_header, struct bpf_binary_header *rw_header);
+struct bpf_binary_header *
+rv_jit_binary_alloc(unsigned int proglen, u8 **image_ptr,
+		    unsigned int alignment,
+		    struct bpf_binary_header **rw_header, u8 **rw_image);
+int rv_jit_binary_pack_finalize(struct bpf_prog *prog,
+				struct bpf_binary_header *ro_header,
+				struct bpf_binary_header *rw_header);
 
 // core func
 
@@ -216,25 +222,22 @@ inline bool is_21b_int(long val);
 
 /* Instruction formats. */
 
-inline u32 rv_r_insn(u8 funct7, u8 rs2, u8 rs1, u8 funct3, u8 rd,
-			    u8 opcode);
+inline u32 rv_r_insn(u8 funct7, u8 rs2, u8 rs1, u8 funct3, u8 rd, u8 opcode);
 inline u32 rv_i_insn(u16 imm11_0, u8 rs1, u8 funct3, u8 rd, u8 opcode);
 inline u32 rv_s_insn(u16 imm11_0, u8 rs2, u8 rs1, u8 funct3, u8 opcode);
 inline u32 rv_b_insn(u16 imm12_1, u8 rs2, u8 rs1, u8 funct3, u8 opcode);
 inline u32 rv_u_insn(u32 imm31_12, u8 rd, u8 opcode);
 inline u32 rv_j_insn(u32 imm20_1, u8 rd, u8 opcode);
-inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1,
-			      u8 funct3, u8 rd, u8 opcode);
+inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1, u8 funct3,
+		       u8 rd, u8 opcode);
 
 // compressed insn
 inline u16 rv_cr_insn(u8 funct4, u8 rd, u8 rs2, u8 op);
 inline u16 rv_ci_insn(u8 funct3, u32 imm6, u8 rd, u8 op);
 inline u16 rv_css_insn(u8 funct3, u32 uimm, u8 rs2, u8 op);
 inline u16 rv_ciw_insn(u8 funct3, u32 uimm, u8 rd, u8 op);
-inline u16 rv_cl_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rd,
-			     u8 op);
-inline u16 rv_cs_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rs2,
-			     u8 op);
+inline u16 rv_cl_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rd, u8 op);
+inline u16 rv_cs_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rs2, u8 op);
 inline u16 rv_ca_insn(u8 funct6, u8 rd, u8 funct2, u8 rs2, u8 op);
 inline u16 rv_cb_insn(u8 funct3, u32 imm6, u8 funct2, u8 rd, u8 op);
 
@@ -377,8 +380,7 @@ inline void emit_sw(u8 rs1, s32 off, u8 rs2, struct rv_jit_context *ctx);
 // RV64-only helper functions.
 #if __riscv_xlen == 64
 
-inline void emit_addiw(u8 rd, u8 rs, s32 imm,
-			      struct rv_jit_context *ctx);
+inline void emit_addiw(u8 rd, u8 rs, s32 imm, struct rv_jit_context *ctx);
 inline void emit_ld(u8 rd, s32 off, u8 rs1, struct rv_jit_context *ctx);
 inline void emit_sd(u8 rs1, s32 off, u8 rs2, struct rv_jit_context *ctx);
 inline void emit_subw(u8 rd, u8 rs1, u8 rs2, struct rv_jit_context *ctx);
@@ -393,6 +395,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 
 // utils
 
-inline void rv_bpf_jit_dump(unsigned int flen, unsigned int proglen, u32 pass, void *image);
+inline void rv_bpf_jit_dump(unsigned int flen, unsigned int proglen, u32 pass,
+			    void *image);
 
 #endif //EBPF_OFFLOAD_RISCV_JIT_H

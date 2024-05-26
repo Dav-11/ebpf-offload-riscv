@@ -5,11 +5,12 @@
  *
  */
 
-#include <linux/bitfield.h>
+//#include <linux/bitfield.h>
 //#include <linux/memory.h>
 //#include <linux/stop_machine.h>
 //#include <asm/patch.h>
 #include "jit.h"
+#include "rv_asm.h"
 
 #define RV_FENTRY_NINSNS 2
 
@@ -26,18 +27,18 @@ static const int regmap[] = {
 };
 
 static const int pt_regmap[] = {
-	[RV_REG_A0] = offsetof(struct pt_regs, a0),
-	[RV_REG_A1] = offsetof(struct pt_regs, a1),
-	[RV_REG_A2] = offsetof(struct pt_regs, a2),
-	[RV_REG_A3] = offsetof(struct pt_regs, a3),
-	[RV_REG_A4] = offsetof(struct pt_regs, a4),
-	[RV_REG_A5] = offsetof(struct pt_regs, a5),
-	[RV_REG_S1] = offsetof(struct pt_regs, s1),
-	[RV_REG_S2] = offsetof(struct pt_regs, s2),
-	[RV_REG_S3] = offsetof(struct pt_regs, s3),
-	[RV_REG_S4] = offsetof(struct pt_regs, s4),
-	[RV_REG_S5] = offsetof(struct pt_regs, s5),
-	[RV_REG_T0] = offsetof(struct pt_regs, t0),
+	[RV_REG_A0] = offsetof(struct rv_pt_regs, a0),
+	[RV_REG_A1] = offsetof(struct rv_pt_regs, a1),
+	[RV_REG_A2] = offsetof(struct rv_pt_regs, a2),
+	[RV_REG_A3] = offsetof(struct rv_pt_regs, a3),
+	[RV_REG_A4] = offsetof(struct rv_pt_regs, a4),
+	[RV_REG_A5] = offsetof(struct rv_pt_regs, a5),
+	[RV_REG_S1] = offsetof(struct rv_pt_regs, s1),
+	[RV_REG_S2] = offsetof(struct rv_pt_regs, s2),
+	[RV_REG_S3] = offsetof(struct rv_pt_regs, s3),
+	[RV_REG_S4] = offsetof(struct rv_pt_regs, s4),
+	[RV_REG_S5] = offsetof(struct rv_pt_regs, s5),
+	[RV_REG_T0] = offsetof(struct rv_pt_regs, t0),
 };
 
 enum {
@@ -576,7 +577,7 @@ static void emit_atomic(u8 rd, u8 rs, s16 off, s32 imm, bool is64,
 #define BPF_FIXUP_REG_MASK GENMASK(31, 27)
 
 bool ex_handler_bpf(const struct exception_table_entry *ex,
-		    struct pt_regs *regs)
+		    struct rv_pt_regs *regs)
 {
 	off_t offset = FIELD_GET(BPF_FIXUP_OFFSET_MASK, ex->fixup);
 	int regs_offset = FIELD_GET(BPF_FIXUP_REG_MASK, ex->fixup);

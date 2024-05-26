@@ -16,9 +16,11 @@ MODULE_VERSION("0.1");
 static struct bpf_offload_dev *dev;
 
 // prototypes
-int my_isn_verify(struct bpf_verifier_env *env, int insn_idx, int prev_insn_idx);
+int my_isn_verify(struct bpf_verifier_env *env, int insn_idx,
+		  int prev_insn_idx);
 int my_finalize(struct bpf_verifier_env *env);
-int my_replace_insn(struct bpf_verifier_env *env, u32 off, struct bpf_insn *insn);
+int my_replace_insn(struct bpf_verifier_env *env, u32 off,
+		    struct bpf_insn *insn);
 int my_remove_insns(struct bpf_verifier_env *env, u32 off, u32 cnt);
 int my_prepare(struct bpf_prog *prog);
 int my_translate(struct bpf_prog *prog);
@@ -60,7 +62,8 @@ int my_finalize(struct bpf_verifier_env *env)
  * @param insn The new instruction
  * @return
  */
-int my_replace_insn(struct bpf_verifier_env *env, u32 off, struct bpf_insn *insn)
+int my_replace_insn(struct bpf_verifier_env *env, u32 off,
+		    struct bpf_insn *insn)
 {
 	// TODO: implement
 	return 0;

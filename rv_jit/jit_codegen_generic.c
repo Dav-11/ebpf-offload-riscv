@@ -114,8 +114,7 @@ inline bool is_21b_int(long val)
  * Instruction formats.
  */
 
-inline u32 rv_r_insn(u8 funct7, u8 rs2, u8 rs1, u8 funct3, u8 rd,
-			    u8 opcode)
+inline u32 rv_r_insn(u8 funct7, u8 rs2, u8 rs1, u8 funct3, u8 rd, u8 opcode)
 {
 	return (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) |
 	       (rd << 7) | opcode;
@@ -159,8 +158,8 @@ inline u32 rv_j_insn(u32 imm20_1, u8 rd, u8 opcode)
 	return (imm << 12) | (rd << 7) | opcode;
 }
 
-inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1,
-			      u8 funct3, u8 rd, u8 opcode)
+inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1, u8 funct3,
+		       u8 rd, u8 opcode)
 {
 	u8 funct7 = (funct5 << 2) | (aq << 1) | rl;
 
@@ -194,15 +193,13 @@ inline u16 rv_ciw_insn(u8 funct3, u32 uimm, u8 rd, u8 op)
 	return (funct3 << 13) | (uimm << 5) | ((rd & 0x7) << 2) | op;
 }
 
-inline u16 rv_cl_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rd,
-			     u8 op)
+inline u16 rv_cl_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rd, u8 op)
 {
 	return (funct3 << 13) | (imm_hi << 10) | ((rs1 & 0x7) << 7) |
 	       (imm_lo << 5) | ((rd & 0x7) << 2) | op;
 }
 
-inline u16 rv_cs_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rs2,
-			     u8 op)
+inline u16 rv_cs_insn(u8 funct3, u32 imm_hi, u8 rs1, u32 imm_lo, u8 rs2, u8 op)
 {
 	return (funct3 << 13) | (imm_hi << 10) | ((rs1 & 0x7) << 7) |
 	       (imm_lo << 5) | ((rs2 & 0x7) << 2) | op;
