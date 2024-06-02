@@ -3,6 +3,14 @@
 
 // #include <linux/bitfield.h>
 // #include <linux/memory.h>
+#include <linux/bpf.h>
+#include <linux/bitfield.h>
+
+// # define offsetof(TYPE, MEMBER)	((size_t)&((TYPE *)0)->MEMBER)
+
+//
+// __set_bit()
+//
 
 struct rv_pt_regs {
 	unsigned long epc;
@@ -44,5 +52,16 @@ struct rv_pt_regs {
 	/* a0 value before the syscall */
 	unsigned long orig_a0;
 };
+
+/**
+ * The purpose of this function is to modify the instructions at a given memory address (ip) with either a jump or a call instruction, depending on the poke_type argument.
+ * TODO: update -> part of the JUMP logic
+ * @param ip instruction pointer
+ * @param poke_type enum('BPF_MOD_JUMP','BPF_MOD_CALL')
+ * @param old_addr
+ * @param new_addr
+ * @return
+ */
+int rv_bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type, void *old_addr, void *new_addr);
 
 #endif

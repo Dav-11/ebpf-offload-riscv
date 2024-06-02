@@ -6,6 +6,10 @@
 .vscode
 .fleet
 .zed
+.cache
+
+# cmake
+compile_commands.json
 
 # LKM artifacts
 **/*.ko

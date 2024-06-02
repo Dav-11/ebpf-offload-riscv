@@ -4,7 +4,7 @@
 
 #include "jit.h"
 
-struct bpf_prog *my_bpf_int_jit_compile(struct bpf_prog *prog)
+struct bpf_prog *my_bpf_jit_compile(struct bpf_prog *prog)
 {
 	unsigned int prog_size = 0, extable_size = 0;
 	bool tmp_blinded = false, extra_pass = false;
@@ -17,7 +17,7 @@ struct bpf_prog *my_bpf_int_jit_compile(struct bpf_prog *prog)
 	if (!prog->jit_requested)
 		return orig_prog;
 
-	// creates a copy of the original program and replaces the constant values with randomized or obfuscated values.
+	// creates a copy of the original program and replaces the constant values with randomized or obfuscated values to prevent the compiler from optimizing the code based on const.
 	// Maybe we do not need it?
 	tmp = bpf_jit_blind_constants(prog);
 	if (IS_ERR(tmp))
@@ -40,13 +40,14 @@ struct bpf_prog *my_bpf_int_jit_compile(struct bpf_prog *prog)
 
 	ctx = &jit_data->ctx;
 
+/* this part is for when the function is called but the optimization was already done, can it happen ?
 	// if offset already exists => this is not the first pass
 	if (ctx->offset) {
 		extra_pass = true;
 		prog_size = sizeof(*ctx->insns) * ctx->ninsns;
 		goto skip_init_ctx;
 	}
-
+*/
 	ctx->prog = prog;
 	ctx->offset = kcalloc(prog->len, sizeof(int), GFP_KERNEL);
 	if (!ctx->offset) {
@@ -55,6 +56,7 @@ struct bpf_prog *my_bpf_int_jit_compile(struct bpf_prog *prog)
 	}
 
 	// replace BPF instructions with their corresponding RISC-V instructions
+	// needed by folowing block to count instructions
 	if (build_body(ctx, extra_pass, NULL)) {
 		prog = orig_prog;
 		goto out_offset;
@@ -66,6 +68,7 @@ struct bpf_prog *my_bpf_int_jit_compile(struct bpf_prog *prog)
 		ctx->offset[i] = prev_ninsns;
 	}
 
+	// optimization loop
 	for (i = 0; i < NR_JIT_ITERATIONS; i++) {
 		pass++;
 		ctx->ninsns = 0;

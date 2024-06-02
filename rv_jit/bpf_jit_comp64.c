@@ -17,6 +17,28 @@
 #define RV_REG_TCC RV_REG_A6
 #define RV_REG_TCC_SAVED RV_REG_S6 /* Store A6 in S6 if program do calls */
 
+/**
+ * regmap - An array mapping BPF register numbers to RISC-V registers
+ *
+ * This array maps BPF register numbers (e.g., BPF_REG_1, BPF_REG_2, etc.)
+ * to the corresponding RISC-V registers (e.g., RV_REG_A0, RV_REG_A1, etc.).
+ * It is used by the BPF JIT compiler to translate BPF register operations
+ * into RISC-V instructions that operate on the appropriate RISC-V registers.
+ *
+ * The mapping is as follows:
+ *   BPF_REG_0  -> RV_REG_A5
+ *   BPF_REG_1  -> RV_REG_A0
+ *   BPF_REG_2  -> RV_REG_A1
+ *   BPF_REG_3  -> RV_REG_A2
+ *   BPF_REG_4  -> RV_REG_A3
+ *   BPF_REG_5  -> RV_REG_A4
+ *   BPF_REG_6  -> RV_REG_S1
+ *   BPF_REG_7  -> RV_REG_S2
+ *   BPF_REG_8  -> RV_REG_S3
+ *   BPF_REG_9  -> RV_REG_S4
+ *   BPF_REG_FP -> RV_REG_S5
+ *   BPF_REG_AX -> RV_REG_T0
+ */
 static const int regmap[] = {
 	[BPF_REG_0] = RV_REG_A5,  [BPF_REG_1] = RV_REG_A0,
 	[BPF_REG_2] = RV_REG_A1,  [BPF_REG_3] = RV_REG_A2,
@@ -26,6 +48,33 @@ static const int regmap[] = {
 	[BPF_REG_FP] = RV_REG_S5, [BPF_REG_AX] = RV_REG_T0,
 };
 
+/**
+ * pt_regmap - An array mapping RISC-V registers to offsets in the pt_regs struct
+ *
+ * This array maps RISC-V registers (e.g., RV_REG_A0, RV_REG_A1, etc.) to the
+ * corresponding offsets of the register values in the `struct pt_regs` structure.
+ * The `struct pt_regs` is used to represent the register state of a thread or
+ * process on the RISC-V architecture.
+ *
+ * The mapping is as follows:
+ *   RV_REG_A0 -> offsetof(struct pt_regs, a0)
+ *   RV_REG_A1 -> offsetof(struct pt_regs, a1)
+ *   RV_REG_A2 -> offsetof(struct pt_regs, a2)
+ *   RV_REG_A3 -> offsetof(struct pt_regs, a3)
+ *   RV_REG_A4 -> offsetof(struct pt_regs, a4)
+ *   RV_REG_A5 -> offsetof(struct pt_regs, a5)
+ *   RV_REG_S1 -> offsetof(struct pt_regs, s1)
+ *   RV_REG_S2 -> offsetof(struct pt_regs, s2)
+ *   RV_REG_S3 -> offsetof(struct pt_regs, s3)
+ *   RV_REG_S4 -> offsetof(struct pt_regs, s4)
+ *   RV_REG_S5 -> offsetof(struct pt_regs, s5)
+ *   RV_REG_T0 -> offsetof(struct pt_regs, t0)
+ *
+ * This mapping is used by the BPF JIT compiler to access and manipulate the
+ * register values in the `struct pt_regs` when performing context switching,
+ * signal handling, or other operations that require access to the register
+ * state of a thread or process.
+ */
 static const int pt_regmap[] = {
 	[RV_REG_A0] = offsetof(struct rv_pt_regs, a0),
 	[RV_REG_A1] = offsetof(struct rv_pt_regs, a1),
@@ -52,6 +101,37 @@ enum {
 	RV_CTX_F_SEEN_S6 = RV_REG_S6,
 };
 
+/**
+ * bpf_to_rv_reg - Map a BPF register to a RISC-V register
+ * @param bpf_reg: The BPF register number to be mapped
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function maps a BPF register number (e.g., BPF_REG_1, BPF_REG_2, etc.)
+ * to the corresponding RISC-V register using the `regmap` array. It also
+ * updates the `ctx->flags` bitmap to mark the RISC-V register as seen if it
+ * is one of the callee-saved registers (S1-S6).
+ *
+ * The mapping between BPF registers and RISC-V registers is as follows:
+ *   BPF_REG_0  -> RV_REG_A5
+ *   BPF_REG_1  -> RV_REG_A0
+ *   BPF_REG_2  -> RV_REG_A1
+ *   BPF_REG_3  -> RV_REG_A2
+ *   BPF_REG_4  -> RV_REG_A3
+ *   BPF_REG_5  -> RV_REG_A4
+ *   BPF_REG_6  -> RV_REG_S1
+ *   BPF_REG_7  -> RV_REG_S2
+ *   BPF_REG_8  -> RV_REG_S3
+ *   BPF_REG_9  -> RV_REG_S4
+ *   BPF_REG_FP -> RV_REG_S5
+ *   BPF_REG_AX -> RV_REG_T0
+ *
+ * The `ctx->flags` bitmap is used to track which callee-saved registers
+ * (S1-S6) have been used by the BPF program, so that the JIT compiler can
+ * properly save and restore these registers during function calls or context
+ * switches.
+ *
+ * @return: The RISC-V register number corresponding to the given BPF register.
+ */
 static u8 bpf_to_rv_reg(int bpf_reg, struct rv_jit_context *ctx)
 {
 	u8 reg = regmap[bpf_reg];
@@ -63,11 +143,34 @@ static u8 bpf_to_rv_reg(int bpf_reg, struct rv_jit_context *ctx)
 	case RV_CTX_F_SEEN_S4:
 	case RV_CTX_F_SEEN_S5:
 	case RV_CTX_F_SEEN_S6:
-		__set_bit(reg, &ctx->flags);
+		__set_bit(reg, &ctx->flags); // TODO: __set_bit() - keep x86
 	}
 	return reg;
 };
 
+/**
+ * seen_reg - Check if a given register has been seen (used) in the BPF program
+ * @param reg: The RISC-V register number to check
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function checks if a given RISC-V register has been marked as "seen"
+ * (used) in the BPF program being compiled. It does this by checking the
+ * corresponding bit in the `ctx->flags` bitmap.
+ *
+ * The registers that are tracked by this function are:
+ *   RV_CTX_F_SEEN_CALL   - The return address register (RA)
+ *   RV_CTX_F_SEEN_S1     - Callee-saved register S1
+ *   RV_CTX_F_SEEN_S2     - Callee-saved register S2
+ *   RV_CTX_F_SEEN_S3     - Callee-saved register S3
+ *   RV_CTX_F_SEEN_S4     - Callee-saved register S4
+ *   RV_CTX_F_SEEN_S5     - Callee-saved register S5 (frame pointer)
+ *   RV_CTX_F_SEEN_S6     - Callee-saved register S6
+ *
+ * Tracking the usage of these registers is important for the JIT compiler
+ * to properly save and restore them during function calls or context switches.
+ *
+ * @return: `true` if the given register has been seen (used), `false` otherwise.
+ */
 static bool seen_reg(int reg, struct rv_jit_context *ctx)
 {
 	switch (reg) {
@@ -78,7 +181,7 @@ static bool seen_reg(int reg, struct rv_jit_context *ctx)
 	case RV_CTX_F_SEEN_S4:
 	case RV_CTX_F_SEEN_S5:
 	case RV_CTX_F_SEEN_S6:
-		return test_bit(reg, &ctx->flags);
+		return test_bit(reg, &ctx->flags); // TODO: test_bit() - keep x86
 	}
 	return false;
 }
@@ -86,31 +189,150 @@ static bool seen_reg(int reg, struct rv_jit_context *ctx)
 // __set_bit(nr, addr)
 // The function sets the bit at the specified index nr in the bit array pointed to by addr to 1.
 
+/**
+ * mark_fp - Mark the frame pointer register (S5) as seen (used)
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function marks the frame pointer register (S5) as "seen" (used) in the
+ * BPF program being compiled. It does this by setting the corresponding bit
+ * (RV_CTX_F_SEEN_S5) in the `ctx->flags` bitmap.
+ *
+ * Marking the frame pointer register as seen is important for the JIT compiler
+ * to properly save and restore it during function calls or context switches.
+ * The frame pointer register is typically used to access stack-based variables
+ * and maintain the call stack.
+ *
+ * This function should be called whenever the BPF program being compiled uses
+ * the frame pointer register (BPF_REG_FP) or performs operations that modify
+ * the frame pointer register.
+ */
 static void mark_fp(struct rv_jit_context *ctx)
 {
 	__set_bit(RV_CTX_F_SEEN_S5, &ctx->flags);
 }
 
+/**
+ * mark_call - Mark that the BPF program being compiled has a function call
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function marks that the BPF program being compiled contains a function
+ * call by setting the `RV_CTX_F_SEEN_CALL` bit in the `ctx->flags` bitmap.
+ *
+ * Marking the presence of function calls is important for the JIT compiler
+ * to properly save and restore the return address register (RA) during the
+ * function call. The return address register is used to store the address
+ * to which the program should return after the function call is completed.
+ *
+ * This function should be called whenever the BPF program being compiled
+ * encounters an instruction that performs a function call, such as the
+ * `BPF_CALL` instruction.
+ */
 static void mark_call(struct rv_jit_context *ctx)
 {
 	__set_bit(RV_CTX_F_SEEN_CALL, &ctx->flags);
 }
 
+/**
+ * seen_call - Check if the BPF program being compiled has a function call
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function checks if the BPF program being compiled contains a function
+ * call by examining the `RV_CTX_F_SEEN_CALL` bit in the `ctx->flags` bitmap.
+ *
+ * The `RV_CTX_F_SEEN_CALL` bit is set by the `mark_call` function whenever
+ * the BPF program encounters an instruction that performs a function call,
+ * such as the `BPF_CALL` instruction.
+ *
+ * Tracking the presence of function calls is important for the JIT compiler
+ * to properly save and restore the return address register (RA) during the
+ * function call. The return address register is used to store the address
+ * to which the program should return after the function call is completed.
+ *
+ * @return: `true` if the BPF program being compiled has a function call,
+ *         `false` otherwise.
+ */
 static bool seen_call(struct rv_jit_context *ctx)
 {
 	return test_bit(RV_CTX_F_SEEN_CALL, &ctx->flags);
 }
 
+/**
+ * mark_tail_call - Mark that the BPF program being compiled has a tail call
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function marks that the BPF program being compiled contains a tail
+ * call by setting the `RV_CTX_F_SEEN_TAIL_CALL` bit in the `ctx->flags`
+ * bitmap.
+ *
+ * Marking the presence of tail calls is important for the JIT compiler to
+ * properly handle the tail call optimization. A tail call is a function call
+ * that is performed as the final instruction of a function, allowing the
+ * caller's stack frame to be reused for the callee, thereby reducing stack
+ * usage and improving performance.
+ *
+ * This function should be called whenever the BPF program being compiled
+ * encounters an instruction that performs a tail call, such as the
+ * `BPF_CALL` instruction with the `BPF_CALL_TAIL` flag set.
+ */
 static void mark_tail_call(struct rv_jit_context *ctx)
 {
 	__set_bit(RV_CTX_F_SEEN_TAIL_CALL, &ctx->flags);
 }
 
+/**
+ * seen_tail_call - Check if the BPF program being compiled has a tail call
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function checks if the BPF program being compiled contains a tail
+ * call by examining the `RV_CTX_F_SEEN_TAIL_CALL` bit in the `ctx->flags`
+ * bitmap.
+ *
+ * The `RV_CTX_F_SEEN_TAIL_CALL` bit is set by the `mark_tail_call` function
+ * whenever the BPF program encounters an instruction that performs a tail
+ * call, such as the `BPF_CALL` instruction with the `BPF_CALL_TAIL` flag set.
+ *
+ * Tracking the presence of tail calls is important for the JIT compiler to
+ * properly handle the tail call optimization. A tail call is a function call
+ * that is performed as the final instruction of a function, allowing the
+ * caller's stack frame to be reused for the callee, thereby reducing stack
+ * usage and improving performance.
+ *
+ * @return: `true` if the BPF program being compiled has a tail call,
+ *         `false` otherwise.
+ */
 static bool seen_tail_call(struct rv_jit_context *ctx)
 {
 	return test_bit(RV_CTX_F_SEEN_TAIL_CALL, &ctx->flags);
 }
 
+/**
+ * rv_tail_call_reg - Get the register to be used for tail calls
+ * @param ctx: The RISC-V JIT context
+ *
+ * This function determines the register to be used for tail calls in the
+ * BPF program being compiled. A tail call is a function call that is
+ * performed as the final instruction of a function, allowing the caller's
+ * stack frame to be reused for the callee, thereby reducing stack usage
+ * and improving performance.
+ *
+ * The function first marks that the BPF program contains a tail call by
+ * calling `mark_tail_call(ctx)`.
+ *
+ * If the BPF program also contains regular function calls (as indicated by
+ * `seen_call(ctx)`), the function returns `RV_REG_S6` (callee-saved register
+ * S6) as the tail call register. This is because the regular function calls
+ * may have already used the temporary register `RV_REG_A6` for other
+ * purposes, so a different register must be used for tail calls to avoid
+ * conflicts.
+ *
+ * If the BPF program does not contain regular function calls, the function
+ * returns `RV_REG_A6` (temporary register A6) as the tail call register.
+ *
+ * The tail call register is used by the JIT compiler to emit the appropriate
+ * instructions for performing tail calls in the generated RISC-V code.
+ *
+ * @return: The RISC-V register number to be used for tail calls.
+ */
 static u8 rv_tail_call_reg(struct rv_jit_context *ctx)
 {
 	mark_tail_call(ctx);
@@ -122,11 +344,55 @@ static u8 rv_tail_call_reg(struct rv_jit_context *ctx)
 	return RV_REG_A6;
 }
 
+/**
+ * is_32b_int - Check if a 64-bit value can be represented as a 32-bit integer
+ * @param val: The 64-bit value to check
+ *
+ * This function checks if the given 64-bit value `val` can be represented
+ * as a 32-bit signed integer, i.e., if it falls within the range of
+ * [-2^31, 2^31 - 1].
+ *
+ * This function is useful in the context of the RISC-V JIT compiler, where
+ * certain instructions (e.g., `addiw`) operate on 32-bit signed integers.
+ * By checking if a value can be represented as a 32-bit integer, the JIT
+ * compiler can determine whether it needs to use 32-bit or 64-bit
+ * instructions to handle the value.
+ *
+ * @return: `true` if `val` can be represented as a 32-bit signed integer,
+ *         `false` otherwise.
+ */
 static bool is_32b_int(s64 val)
 {
 	return -(1L << 31) <= val && val < (1L << 31);
 }
 
+/**
+ * in_auipc_jalr_range - Check if a value is within the range of auipc+jalr
+ * @param val: The value to check
+ *
+ * This function checks if the given signed 64-bit value `val` falls within
+ * the range that can be reached by the combination of the `auipc` (add
+ * upper immediate to PC) and `jalr` (jump and link register) instructions
+ * in the RISC-V instruction set.
+ *
+ * The `auipc` instruction is used to load a 32-bit offset into a register,
+ * which is then added to the current program counter (PC) value. The `jalr`
+ * instruction performs a jump to the address specified by the sum of the
+ * register value and a 12-bit signed offset.
+ *
+ * Together, the `auipc` and `jalr` instructions can reach any signed
+ * PC-relative offset in the range [-2^31 - 2^11, 2^31 - 2^11), where
+ * 2^31 is the maximum value of a 32-bit signed integer, and 2^11 is the
+ * maximum value of the 12-bit signed offset used by `jalr`.
+ *
+ * This function is useful in the context of the RISC-V JIT compiler, where
+ * it can be used to determine if a target address can be reached using the
+ * `auipc` and `jalr` instructions, or if alternative instruction sequences
+ * are required.
+ *
+ * @return: `true` if `val` is within the range of `auipc+jalr`, `false`
+ *         otherwise.
+ */
 static bool in_auipc_jalr_range(s64 val)
 {
 	/*
@@ -137,7 +403,42 @@ static bool in_auipc_jalr_range(s64 val)
 	       val < ((1L << 31) - (1L << 11));
 }
 
-/* Emit fixed-length instructions for address */
+/**
+ * emit_addr - Emit fixed-length instructions to load an address
+ * @param rd The destination register to load the address into
+ * @param addr The 64-bit address value to load
+ * @param extra_pass A flag indicating if this is an extra pass (for range check)
+ * @param ctx The RISC-V JIT context
+ *
+ * This function emits a sequence of fixed-length instructions to load the
+ * given 64-bit address `addr` into the specified destination register `rd`.
+ * The instructions used are `auipc` (add upper immediate to PC) and `addi`
+ * (add immediate to register).
+ *
+ * The function first calculates the offset `off` between the target address
+ * `addr` and the current instruction pointer `ip`, which is determined by
+ * the `ro_insns` (read-only instructions) pointer and the current number of
+ * instructions `ninsns` in the JIT context. This offset is then split into
+ * an upper part `upper` (bits 12 and above) and a lower part `lower` (bits
+ * 0-11).
+ *
+ * If the `extra_pass` flag is set, the function checks if the calculated
+ * offset `off` is within the range that can be reached by the combination
+ * of `auipc` and `jalr` (jump and link register) instructions. If the offset
+ * is out of range, an error message is printed, and the function returns
+ * `-ERANGE`.
+ *
+ * If the offset is within range, the function emits the `auipc` instruction
+ * to load the upper part of the offset into the destination register `rd`,
+ * and then emits the `addi` instruction to add the lower part of the offset
+ * to `rd`.
+ *
+ * This function is used by the RISC-V JIT compiler to load target addresses
+ * for branch instructions, function calls, and other operations that require
+ * loading an absolute address.
+ *
+ * @return: 0 on success, -ERANGE if the target address is out of range.
+ */
 static int emit_addr(u8 rd, u64 addr, bool extra_pass,
 		     struct rv_jit_context *ctx)
 {
@@ -160,7 +461,43 @@ static int emit_addr(u8 rd, u64 addr, bool extra_pass,
 	return 0;
 }
 
-/* Emit variable-length instructions for 32-bit and 64-bit imm */
+/**
+ * @brief Emit fixed-length instructions to load an address
+ *
+ * @param rd The destination register to load the address into
+ * @param addr The 64-bit address value to load
+ * @param extra_pass A flag indicating if this is an extra pass (for range check)
+ * @param ctx The RISC-V JIT context
+ *
+ * This function emits a sequence of fixed-length instructions to load the
+ * given 64-bit address `addr` into the specified destination register `rd`.
+ * The instructions used are `auipc` (add upper immediate to PC) and `addi`
+ * (add immediate to register).
+ *
+ * The function first calculates the offset `off` between the target address
+ * `addr` and the current instruction pointer `ip`, which is determined by
+ * the `ro_insns` (read-only instructions) pointer and the current number of
+ * instructions `ninsns` in the JIT context. This offset is then split into
+ * an upper part `upper` (bits 12 and above) and a lower part `lower` (bits
+ * 0-11).
+ *
+ * If the `extra_pass` flag is set, the function checks if the calculated
+ * offset `off` is within the range that can be reached by the combination
+ * of `auipc` and `jalr` (jump and link register) instructions. If the offset
+ * is out of range, an error message is printed, and the function returns
+ * `-ERANGE`.
+ *
+ * If the offset is within range, the function emits the `auipc` instruction
+ * to load the upper part of the offset into the destination register `rd`,
+ * and then emits the `addi` instruction to add the lower part of the offset
+ * to `rd`.
+ *
+ * This function is used by the RISC-V JIT compiler to load target addresses
+ * for branch instructions, function calls, and other operations that require
+ * loading an absolute address.
+ *
+ * @return 0 on success, -ERANGE if the target address is out of range.
+ */
 static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 {
 	/* Note that the immediate from the add is sign-extended,
@@ -204,6 +541,38 @@ static void emit_imm(u8 rd, s64 val, struct rv_jit_context *ctx)
 		emit_addi(rd, rd, lower, ctx);
 }
 
+/**
+ * @brief Build the epilogue for the JIT-compiled BPF program
+ * @param ctx The RISC-V JIT context
+ * @param is_tail_call A flag indicating if this is a tail call
+ *
+ * This function builds the epilogue for the JIT-compiled BPF program,
+ * which is responsible for restoring the callee-saved registers and
+ * returning from the function.
+ *
+ * The epilogue performs the following steps:
+ *
+ * 1. Restore the callee-saved registers (`ra`, `fp`, `s1`, `s2`, `s3`,
+ *    `s4`, `s5`, `s6`, and the `arena` pointer if applicable) from the
+ *    stack frame.
+ * 2. Adjust the stack pointer (`sp`) to release the stack frame.
+ * 3. If this is not a tail call, set the return value (`a0`) to the value
+ *    in `a5` (which holds the BPF program's return value).
+ * 4. Jump to the return address (`ra`) or the tail call target (`t3`),
+ *    depending on whether this is a tail call or not.
+ *
+ * The function emits the appropriate RISC-V instructions to perform these
+ * steps, including `ld` (load), `addi` (add immediate), `addiw` (add word
+ * immediate), and `jalr` (jump and link register).
+ *
+ * If this is a tail call, the function skips the first `RV_FENTRY_NINSNS + 1`
+ * instructions in the target function, which are reserved for the function
+ * entry prologue and tail call initialization.
+ *
+ * This function is an essential part of the RISC-V JIT compiler, as it
+ * ensures that the JIT-compiled BPF program follows the standard calling
+ * conventions and properly returns control to the caller.
+ */
 static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 {
 	int stack_adjust = ctx->stack_size, store_offset = stack_adjust - 8;
@@ -249,6 +618,39 @@ static void __build_epilogue(bool is_tail_call, struct rv_jit_context *ctx)
 		  ctx);
 }
 
+/**
+ * @brief Emit a branch conditional instruction
+ * @param cond The branch condition code (e.g., BPF_JEQ, BPF_JGT, etc.)
+ * @param rd The register containing the first operand
+ * @param rs The register containing the second operand
+ * @param rvoff The relative offset (in bytes) to branch to
+ * @param ctx The RISC-V JIT context
+ *
+ * This function emits a branch conditional instruction based on the given
+ * condition code `cond`, comparing the values in registers `rd` and `rs`.
+ * The branch target is determined by the relative offset `rvoff`, which
+ * is shifted right by 1 bit (divided by 2) to account for the compressed
+ * instruction format.
+ *
+ * The function supports the following branch condition codes:
+ *   - BPF_JEQ: Branch if `rd` is equal to `rs`
+ *   - BPF_JGT: Branch if `rd` is unsigned greater than `rs`
+ *   - BPF_JLT: Branch if `rd` is unsigned less than `rs`
+ *   - BPF_JGE: Branch if `rd` is unsigned greater than or equal to `rs`
+ *   - BPF_JLE: Branch if `rd` is unsigned less than or equal to `rs`
+ *   - BPF_JNE: Branch if `rd` is not equal to `rs`
+ *   - BPF_JSGT: Branch if `rd` is signed greater than `rs`
+ *   - BPF_JSLT: Branch if `rd` is signed less than `rs`
+ *   - BPF_JSGE: Branch if `rd` is signed greater than or equal to `rs`
+ *   - BPF_JSLE: Branch if `rd` is signed less than or equal to `rs`
+ *
+ * The appropriate RISC-V branch instruction is emitted based on the
+ * condition code, such as `beq` (branch if equal), `bltu` (branch if
+ * unsigned less than), `blt` (branch if signed less than), etc.
+ *
+ * This function is used by the RISC-V JIT compiler to generate conditional
+ * branch instructions for BPF programs.
+ */
 static void emit_bcc(u8 cond, u8 rd, u8 rs, int rvoff,
 		     struct rv_jit_context *ctx)
 {
@@ -285,6 +687,46 @@ static void emit_bcc(u8 cond, u8 rd, u8 rs, int rvoff,
 	}
 }
 
+/**
+ * @brief Emit a conditional branch instruction
+ *
+ * @param cond The branch condition code (e.g., BPF_JEQ, BPF_JGT, etc.)
+ * @param rd The register containing the first operand
+ * @param rs The register containing the second operand
+ * @param rvoff The relative offset (in bytes) to branch to
+ * @param ctx The RISC-V JIT context
+ *
+ * This function emits a conditional branch instruction based on the given
+ * condition code `cond`, comparing the values in registers `rd` and `rs`.
+ * The branch target is determined by the relative offset `rvoff`.
+ *
+ * The function first checks if the branch offset `rvoff` can be encoded
+ * within the 13-bit signed immediate field of the RISC-V branch instructions.
+ * If so, it emits the appropriate branch instruction (e.g., `beq`, `bltu`,
+ * `blt`, etc.) with the offset `rvoff` shifted right by 1 bit (divided by 2)
+ * to account for the compressed instruction format.
+ *
+ * If the branch offset `rvoff` cannot be encoded within the 13-bit immediate
+ * field, the function adjusts the offset by subtracting 4 bytes to account
+ * for the `jal` (jump and link) instruction that will be used. It then
+ * inverts the branch condition code `cond` and checks if the adjusted offset
+ * can be encoded within the 21-bit signed immediate field of the `jal`
+ * instruction. If so, it emits the inverted branch condition, followed by
+ * the `jal` instruction with the adjusted offset shifted right by 1 bit.
+ *
+ * If the adjusted offset still cannot be encoded within the 21-bit immediate
+ * field, the function splits the offset into an upper part `upper` (bits 12
+ * and above) and a lower part `lower` (bits 0-11). It then emits the inverted
+ * branch condition with a short offset of 12 bytes, followed by the `auipc`
+ * (add upper immediate to PC) instruction to load the upper part of the
+ * offset into the temporary register `t1`, and finally the `jalr` (jump and
+ * link register) instruction to jump to the target address using the lower
+ * part of the offset and the value in `t1`.
+ *
+ * This function is used by the RISC-V JIT compiler to generate conditional
+ * branch instructions for BPF programs, handling both short and long branch
+ * offsets.
+ */
 static void emit_branch(u8 cond, u8 rd, u8 rs, int rvoff,
 			struct rv_jit_context *ctx)
 {
@@ -306,7 +748,7 @@ static void emit_branch(u8 cond, u8 rd, u8 rs, int rvoff,
 	 *   jal(r) foo
 	 * .L1
 	 */
-	cond = invert_bpf_cond(cond);
+	cond = invert_bpf_cond(cond); // from jit.h
 	if (is_21b_int(rvoff)) {
 		emit_bcc(cond, rd, rs, 8, ctx);
 		emit(rv_jal(RV_REG_ZERO, rvoff >> 1), ctx);
@@ -324,12 +766,59 @@ static void emit_branch(u8 cond, u8 rd, u8 rs, int rvoff,
 	emit(rv_jalr(RV_REG_ZERO, RV_REG_T1, lower), ctx);
 }
 
+/**
+ * Emit a zero-extend operation on a 32-bit register.
+ *
+ * This function takes a 32-bit register and zero-extends it to 64 bits by
+ * shifting the register left by 32 bits and then shifting it right by 32 bits.
+ * This effectively clears the upper 32 bits of the register, leaving only the
+ * lower 32 bits.
+ *
+ * @param reg The 32-bit register to zero-extend.
+ * @param ctx The JIT context to emit the instructions to.
+ */
 static void emit_zext_32(u8 reg, struct rv_jit_context *ctx)
 {
 	emit_slli(reg, reg, 32, ctx);
 	emit_srli(reg, reg, 32, ctx);
 }
 
+/**
+ * @brief Emit instructions for a BPF tail call
+ *
+ * @param insn The BPF instruction for the tail call
+ * @param ctx The RISC-V JIT context
+ *
+ * This function emits the necessary instructions to perform a BPF tail call.
+ * It assumes the following register assignments:
+ *   - `a0`: Pointer to the BPF context
+ *   - `a1`: Pointer to the BPF array
+ *   - `a2`: Index into the BPF array
+ *
+ * The function performs the following steps:
+ *
+ * 1. Check if the index `a2` is greater than or equal to the maximum number
+ *    of entries in the BPF array (`array->map.max_entries`). If so, jump to
+ *    the `out` label.
+ * 2. Decrement the tail call count (`TCC`) and check if it becomes negative.
+ *    If so, jump to the `out` label.
+ * 3. Load the BPF program pointer (`prog`) from the array (`array->ptrs[index]`)
+ *    and check if it is null. If so, jump to the `out` label.
+ * 4. Load the address of the BPF program's function (`prog->bpf_func`) into
+ *    the `t3` register and jump to that address, skipping the first
+ *    `RV_FENTRY_NINSNS + 1` instructions (reserved for function entry prologue
+ *    and tail call initialization).
+ *
+ * The function uses various RISC-V instructions such as `lwu` (load word
+ * unsigned), `slli` (shift left logical immediate), `add`, `ld` (load double),
+ * and `jalr` (jump and link register) to perform the necessary operations.
+ *
+ * If any error occurs during the tail call setup (e.g., out-of-range offsets),
+ * the function returns -1 to indicate failure. Otherwise, it returns 0 on
+ * success.
+ *
+ * @return 0 on success, -1 on failure.
+ */
 static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 {
 	int tc_ninsn, off, start_insn = ctx->ninsns;
@@ -347,7 +836,7 @@ static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 	emit_zext_32(RV_REG_A2, ctx);
 
 	off = offsetof(struct bpf_array, map.max_entries);
-	if (is_12b_check(off, insn))
+	if (is_12b_check(off, insn)) //from jit.h
 		return -1;
 	emit(rv_lwu(RV_REG_T1, off, RV_REG_A1), ctx);
 	off = ninsns_rvoff(tc_ninsn - (ctx->ninsns - start_insn));
@@ -382,6 +871,30 @@ static int emit_bpf_tail_call(int insn, struct rv_jit_context *ctx)
 	return 0;
 }
 
+/**
+ * @brief Initialize the RISC-V JIT context registers
+ *
+ * @param ctx The RISC-V JIT context
+ *
+ * This function initializes the registers in the RISC-V JIT context `ctx`
+ * with their respective initial values. The registers and their initial
+ * values are as follows:
+ *
+ * - `RV_REG_A0`: Initialized with the address of the BPF context.
+ * - `RV_REG_A1`: Initialized with the address of the BPF array.
+ * - `RV_REG_A2`: Initialized with the index into the BPF array.
+ * - `RV_REG_A3`: Initialized with the address of the BPF stack.
+ * - `RV_REG_TCC`: Initialized with the tail call count.
+ * - `RV_REG_FP`: Initialized with the address of the BPF frame pointer.
+ * - `RV_REG_SP`: Initialized with the address of the BPF stack pointer.
+ *
+ * The function also initializes the `ninsns` field of the JIT context to
+ * zero, indicating that no instructions have been emitted yet.
+ *
+ * This function is called at the beginning of the JIT compilation process
+ * to set up the initial register values and prepare the JIT context for
+ * instruction emission.
+ */
 static void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn,
 		      struct rv_jit_context *ctx)
 {
@@ -403,6 +916,16 @@ static void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn,
 		*rs = bpf_to_rv_reg(insn->src_reg, ctx);
 }
 
+/**
+ * Emit instructions to zero-extend a 32-bit value to 64 bits.
+ *
+ * This function takes two 32-bit registers, zero-extends them to 64 bits, and
+ * stores the results back in the original registers.
+ *
+ * @param rd Pointer to the destination 32-bit register.
+ * @param rs Pointer to the source 32-bit register.
+ * @param ctx The JIT context.
+ */
 static void emit_zext_32_rd_rs(u8 *rd, u8 *rs, struct rv_jit_context *ctx)
 {
 	emit_mv(RV_REG_T2, *rd, ctx);
@@ -413,6 +936,17 @@ static void emit_zext_32_rd_rs(u8 *rd, u8 *rs, struct rv_jit_context *ctx)
 	*rs = RV_REG_T1;
 }
 
+/**
+ * Emit sign-extend 32-bit operation from register to register.
+ *
+ * This function emits the necessary instructions to sign-extend a 32-bit value
+ * from one register to another. It uses the ADDIW instruction to perform the
+ * sign-extension.
+ *
+ * @param rd Pointer to the destination register.
+ * @param rs Pointer to the source register.
+ * @param ctx The JIT context.
+ */
 static void emit_sext_32_rd_rs(u8 *rd, u8 *rs, struct rv_jit_context *ctx)
 {
 	emit_addiw(RV_REG_T2, *rd, 0, ctx);
@@ -421,6 +955,24 @@ static void emit_sext_32_rd_rs(u8 *rd, u8 *rs, struct rv_jit_context *ctx)
 	*rs = RV_REG_T1;
 }
 
+/**
+ * Emit a 32-bit zero-extension operation for the given register.
+ *
+ * This function takes a pointer to a register (rd) and a JIT context (ctx),
+ * and performs the following steps:
+ *
+ * 1. Moves the value from the register pointed to by rd into the T2 register.
+ * 2. Zero-extends the value in the T2 register to 32 bits.
+ * 3. Zero-extends the value in the T1 register to 32 bits.
+ * 4. Stores the zero-extended value from the T2 register back into the register
+ *    pointed to by rd.
+ *
+ * This function is used to ensure that 32-bit values are properly zero-extended
+ * before performing operations on them.
+ *
+ * @param rd   Pointer to the register to be zero-extended
+ * @param ctx  The JIT context
+ */
 static void emit_zext_32_rd_t1(u8 *rd, struct rv_jit_context *ctx)
 {
 	emit_mv(RV_REG_T2, *rd, ctx);
@@ -429,12 +981,62 @@ static void emit_zext_32_rd_t1(u8 *rd, struct rv_jit_context *ctx)
 	*rd = RV_REG_T2;
 }
 
+/**
+ * Emit sign-extended 32-bit value to a register.
+ *
+ * This function takes a pointer to a register and a JIT context, and emits
+ * instructions to sign-extend a 32-bit value to 64 bits and store the result
+ * in the specified register.
+ *
+ * @param rd Pointer to the destination register.
+ * @param ctx The JIT context.
+ */
 static void emit_sext_32_rd(u8 *rd, struct rv_jit_context *ctx)
 {
 	emit_addiw(RV_REG_T2, *rd, 0, ctx);
 	*rd = RV_REG_T2;
 }
 
+/**
+ * @brief Emit a jump and link instruction
+ *
+ * @param rd The destination register to store the return address
+ * @param rvoff The relative offset (in bytes) to jump to
+ * @param fixed_addr A flag indicating if the target address is fixed
+ * @param ctx The RISC-V JIT context
+ *
+ * @return 0 on success, -ERANGE if the target offset is out of range
+ *
+ * This function emits a jump and link instruction to transfer control to
+ * a target address specified by the relative offset `rvoff`. The return
+ * address is stored in the destination register `rd`.
+ *
+ * The function first checks if the target offset `rvoff` can be encoded
+ * within the 21-bit signed immediate field of the `jal` (jump and link)
+ * instruction, and if the `fixed_addr` flag is set (indicating that the
+ * target address is fixed and not relative to the current instruction
+ * pointer). If both conditions are met, it emits the `jal` instruction
+ * with the offset `rvoff` shifted right by 1 bit (divided by 2) to account
+ * for the compressed instruction format.
+ *
+ * If the target offset `rvoff` cannot be encoded within the 21-bit immediate
+ * field, or if the `fixed_addr` flag is not set, the function checks if the
+ * offset falls within the range that can be reached by the combination of
+ * `auipc` (add upper immediate to PC) and `jalr` (jump and link register)
+ * instructions. If so, it splits the offset into an upper part `upper`
+ * (bits 12 and above) and a lower part `lower` (bits 0-11). It then emits
+ * the `auipc` instruction to load the upper part of the offset into the
+ * temporary register `t1`, followed by the `jalr` instruction to jump to
+ * the target address using the lower part of the offset and the value in
+ * `t1`.
+ *
+ * If the target offset `rvoff` is out of range for both the `jal` and the
+ * `auipc`/`jalr` combination, the function prints an error message and
+ * returns `-ERANGE` to indicate failure.
+ *
+ * This function is used by the RISC-V JIT compiler to generate jump and
+ * link instructions for function calls and other control transfer operations.
+ */
 static int emit_jump_and_link(u8 rd, s64 rvoff, bool fixed_addr,
 			      struct rv_jit_context *ctx)
 {
@@ -455,12 +1057,72 @@ static int emit_jump_and_link(u8 rd, s64 rvoff, bool fixed_addr,
 	return -ERANGE;
 }
 
+/**
+ * @brief Check if a BPF condition code represents a signed comparison
+ * @param cond The BPF condition code
+ * @return true if the condition code represents a signed comparison,
+ *         false otherwise
+ *
+ * This function checks if the given BPF condition code `cond` represents
+ * a signed comparison operation. It returns true if the condition code is
+ * one of the following:
+ *
+ *   - BPF_JSGT: Jump if signed greater than
+ *   - BPF_JSLT: Jump if signed less than
+ *   - BPF_JSGE: Jump if signed greater than or equal
+ *   - BPF_JSLE: Jump if signed less than or equal
+ *
+ * These condition codes are used for signed comparisons between two
+ * operands, treating them as signed values.
+ *
+ * The function returns false for all other BPF condition codes, which
+ * represent unsigned comparisons or other operations.
+ *
+ * This function is used by the RISC-V JIT compiler to determine whether
+ * a signed or unsigned comparison instruction should be emitted for a
+ * given BPF condition code.
+ */
 static bool is_signed_bpf_cond(u8 cond)
 {
 	return cond == BPF_JSGT || cond == BPF_JSLT || cond == BPF_JSGE ||
 	       cond == BPF_JSLE;
 }
 
+/**
+ * @brief Emit a function call instruction
+ *
+ * @param addr The target address of the function to call
+ * @param fixed_addr A flag indicating if the target address is fixed
+ * @param ctx The RISC-V JIT context
+ *
+ * @return 0 on success, -ERANGE if the target address is out of range
+ *
+ * This function emits a function call instruction to transfer control to
+ * the specified target address `addr`. The `fixed_addr` flag indicates
+ * whether the target address is a fixed absolute address or a relative
+ * offset from the current instruction pointer.
+ *
+ * The function first calculates the offset `off` between the target address
+ * `addr` and the current instruction pointer. If `fixed_addr` is true, the
+ * offset is calculated directly from `addr`. If `fixed_addr` is false, the
+ * offset is calculated as the difference between `addr` and the address of
+ * the read-only instruction memory region (`ctx->ro_insns + ctx->ninsns`),
+ * assuming that the BPF program will run from this memory region.
+ *
+ * After calculating the offset `off`, the function calls `emit_jump_and_link`
+ * to emit the appropriate jump and link instruction(s) to transfer control
+ * to the target address. The `emit_jump_and_link` function handles the
+ * details of encoding the offset and emitting the necessary instructions
+ * (e.g., `jal`, `auipc`, `jalr`) based on the offset range and the `fixed_addr`
+ * flag.
+ *
+ * If the target address `addr` is out of range for the available jump and
+ * link instructions, the function returns `-ERANGE` to indicate failure.
+ * Otherwise, it returns 0 on success.
+ *
+ * This function is used by the RISC-V JIT compiler to generate function
+ * call instructions for BPF helper functions and other external functions.
+ */
 static int emit_call(u64 addr, bool fixed_addr, struct rv_jit_context *ctx)
 {
 	s64 off = 0;
@@ -478,6 +1140,55 @@ static int emit_call(u64 addr, bool fixed_addr, struct rv_jit_context *ctx)
 	return emit_jump_and_link(RV_REG_RA, off, fixed_addr, ctx);
 }
 
+/**
+ * @brief Emit instructions for an atomic operation
+ *
+ * @param rd The destination register
+ * @param rs The source register
+ * @param off The offset from the base register
+ * @param imm The atomic operation code (BPF_ADD, BPF_AND, BPF_OR, etc.)
+ * @param is64 A flag indicating whether the operation is 64-bit or 32-bit
+ * @param ctx The RISC-V JIT context
+ *
+ * This function emits the necessary instructions to perform an atomic
+ * operation on a memory location specified by the base register `rd` and
+ * the offset `off`. The operation is determined by the `imm` parameter,
+ * which can be one of the following:
+ *
+ *   - `BPF_ADD`: Atomic addition (`rd += rs`)
+ *   - `BPF_AND`: Atomic bitwise AND (`rd &= rs`)
+ *   - `BPF_OR`: Atomic bitwise OR (`rd |= rs`)
+ *   - `BPF_XOR`: Atomic bitwise XOR (`rd ^= rs`)
+ *   - `BPF_ADD | BPF_FETCH`: Atomic fetch-and-add (`rs = rd; rd += rs`)
+ *   - `BPF_AND | BPF_FETCH`: Atomic fetch-and-and (`rs = rd; rd &= rs`)
+ *   - `BPF_OR | BPF_FETCH`: Atomic fetch-and-or (`rs = rd; rd |= rs`)
+ *   - `BPF_XOR | BPF_FETCH`: Atomic fetch-and-xor (`rs = rd; rd ^= rs`)
+ *   - `BPF_XCHG`: Atomic exchange (`rs = rd; rd = rs`)
+ *   - `BPF_CMPXCHG`: Atomic compare-and-exchange (`r0 = atomic_cmpxchg(rd, r0, rs)`)
+ *
+ * The `is64` flag indicates whether the operation should be performed on
+ * 64-bit (true) or 32-bit (false) values.
+ *
+ * The function first checks if the offset `off` is non-zero. If so, it
+ * calculates the effective address by adding the offset to the base register
+ * `rd` and stores the result in the temporary register `RV_REG_T1`.
+ *
+ * Then, based on the operation code `imm`, the function emits the
+ * appropriate RISC-V atomic instruction (`amoadd`, `amoand`, `amoor`,
+ * `amoxor`, `amoswap`, or `amocmpxchg`) with the necessary operands and
+ * flags. The atomic instructions are performed on the memory location
+ * specified by the effective address (`rd` or `RV_REG_T1`) and the source
+ * register `rs`.
+ *
+ * For fetch-and-op operations (`BPF_ADD | BPF_FETCH`, `BPF_AND | BPF_FETCH`,
+ * etc.), the function emits an additional instruction to zero-extend the
+ * result from 32 bits to 64 bits if the operation is performed on 32-bit
+ * values (`!is64`).
+ *
+ * This function is used by the RISC-V JIT compiler to generate atomic
+ * instructions for BPF programs that perform atomic operations on memory
+ * locations.
+ */
 static void emit_atomic(u8 rd, u8 rs, s16 off, s32 imm, bool is64,
 			struct rv_jit_context *ctx)
 {
@@ -576,7 +1287,19 @@ static void emit_atomic(u8 rd, u8 rs, s16 off, s32 imm, bool is64,
 #define BPF_FIXUP_OFFSET_MASK GENMASK(26, 0)
 #define BPF_FIXUP_REG_MASK GENMASK(31, 27)
 
-bool ex_handler_bpf(const struct exception_table_entry *ex,
+/**
+ * @brief Handle exceptions in BPF JIT compiled code
+ *
+ * This function is called when an exception occurs in BPF JIT compiled code.
+ * It sets the program counter (epc) to the address of the fixup code and
+ * clears the register value that caused the exception.
+ *
+ * @param ex Pointer to the exception table entry containing the fixup information
+ * @param regs Pointer to the register state at the time of the exception
+ *
+ * Returns: true to indicate the exception has been handled
+ */
+bool ex_handler_bpf(const struct rv_exception_table_entry *ex,
 		    struct rv_pt_regs *regs)
 {
 	off_t offset = FIELD_GET(BPF_FIXUP_OFFSET_MASK, ex->fixup);
@@ -593,9 +1316,9 @@ static int add_exception_handler(const struct bpf_insn *insn,
 				 struct rv_jit_context *ctx, int dst_reg,
 				 int insn_len)
 {
-	struct exception_table_entry *ex;
+	struct rv_exception_table_entry *ex;
 	unsigned long pc;
-	off_t ins_offset;
+	off_t ins_offset; //TODO: off_t
 	off_t fixup_offset;
 
 	if (!ctx->insns || !ctx->ro_insns || !ctx->prog->aux->extable ||
@@ -638,7 +1361,7 @@ static int add_exception_handler(const struct bpf_insn *insn,
 	 * fault.
 	 */
 	fixup_offset = (long)&ex->fixup - (pc + insn_len * sizeof(u16));
-	if (!FIELD_FIT(BPF_FIXUP_OFFSET_MASK, fixup_offset))
+	if (!FIELD_FIT(BPF_FIXUP_OFFSET_MASK, fixup_offset)) //TODO: FIELD_FIT - okish
 		return -ERANGE;
 
 	/*
@@ -650,7 +1373,7 @@ static int add_exception_handler(const struct bpf_insn *insn,
 
 	ex->insn = ins_offset;
 
-	ex->fixup = FIELD_PREP(BPF_FIXUP_OFFSET_MASK, fixup_offset) |
+	ex->fixup = FIELD_PREP(BPF_FIXUP_OFFSET_MASK, fixup_offset) | //TODO: FIELD_PREP - okish
 		    FIELD_PREP(BPF_FIXUP_REG_MASK, dst_reg);
 	ex->type = EX_TYPE_BPF;
 
@@ -677,38 +1400,53 @@ static int gen_jump_or_nops(void *target, void *ip, u32 *insns, bool is_call)
 				  false, &ctx);
 }
 
-int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
+int rv_bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type, // from bpf.h
 		       void *old_addr, void *new_addr)
 {
 	u32 old_insns[RV_FENTRY_NINSNS], new_insns[RV_FENTRY_NINSNS];
 	bool is_call = poke_type == BPF_MOD_CALL;
 	int ret;
 
-	if (!is_kernel_text((unsigned long)ip) &&
-	    !is_bpf_text_address((unsigned long)ip))
+	if (!is_kernel_text((unsigned long)ip) && //TODO: is_kernel_text
+	    !is_bpf_text_address((unsigned long)ip)) //TODO: is_bpf_text_address
 		return -ENOTSUPP;
 
 	ret = gen_jump_or_nops(old_addr, ip, old_insns, is_call);
 	if (ret)
 		return ret;
 
-	if (memcmp(ip, old_insns, RV_FENTRY_NINSNS * 4))
+	if (memcmp(ip, old_insns, RV_FENTRY_NINSNS * 4)) //TODO: memcmp
 		return -EFAULT;
 
 	ret = gen_jump_or_nops(new_addr, ip, new_insns, is_call);
 	if (ret)
 		return ret;
 
-	cpus_read_lock();
-	mutex_lock(&text_mutex);
+	cpus_read_lock(); //TODO: cpus_read_lock, cpus_read_unlock
+	mutex_lock(&text_mutex); //TODO: mutex_lock, text_mutex, mutex_unlock
 	if (memcmp(ip, new_insns, RV_FENTRY_NINSNS * 4))
-		ret = patch_text(ip, new_insns, RV_FENTRY_NINSNS);
+		ret = patch_text(ip, new_insns, RV_FENTRY_NINSNS); //TODO: patch_text
 	mutex_unlock(&text_mutex);
 	cpus_read_unlock();
 
 	return ret;
 }
 
+/**
+ * Stores the function arguments in the stack frame.
+ *
+ * This function is responsible for storing the function arguments in the stack
+ * frame, starting from the base pointer (RV_REG_FP) and moving downwards in
+ * memory. The number of arguments to store is specified by the `nregs`
+ * parameter, and the starting offset from the base pointer is specified by the
+ * `args_off` parameter.
+ *
+ * @param nregs The number of function arguments to store.
+ * @param args_off The starting offset from the base pointer to store the
+ *                 arguments.
+ * @param ctx The JIT context, which contains information about the current
+ *            compilation state.
+ */
 static void store_args(int nregs, int args_off, struct rv_jit_context *ctx)
 {
 	int i;
@@ -719,6 +1457,20 @@ static void store_args(int nregs, int args_off, struct rv_jit_context *ctx)
 	}
 }
 
+/**
+ * Restores the function arguments from the stack frame.
+ *
+ * This function is responsible for restoring the function arguments that were
+ * previously saved on the stack frame. It iterates over the number of registers
+ * specified by `nregs` and loads the argument values from the stack frame
+ * starting at the offset specified by `args_off`. The loaded values are stored
+ * in the corresponding registers (A0 to A0 + nregs - 1).
+ *
+ * @param nregs The number of registers to restore.
+ * @param args_off The offset from the frame pointer (FP) where the arguments
+ *                 are stored on the stack.
+ * @param ctx The JIT context used for emitting the load instructions.
+ */
 static void restore_args(int nregs, int args_off, struct rv_jit_context *ctx)
 {
 	int i;
@@ -729,13 +1481,29 @@ static void restore_args(int nregs, int args_off, struct rv_jit_context *ctx)
 	}
 }
 
-static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off,
+/**
+ * invoke_bpf_prog - Invoke a BPF program in the context of a trampoline
+ *
+ * This function is responsible for setting up the necessary context and
+ * calling the BPF program's entry point. It handles saving and restoring
+ * the return value, as well as invoking the program's enter and exit hooks.
+ *
+ * @param l: The BPF trampoline link associated with the program to be executed
+ * @param args_off: The offset of the arguments in the run context
+ * @param retval_off: The offset of the return value in the run context
+ * @param run_ctx_off: The offset of the run context in the stack frame
+ * @param save_ret: Whether to save the return value in the run context
+ * @param ctx: The JIT context for the current trampoline
+ *
+ * @return 0 on success, or a negative error code on failure
+ */
+static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off, //TODO: understand if tries to run code in kernel (bc it cannot if it is compiled for riscv)
 			   int retval_off, int run_ctx_off, bool save_ret,
 			   struct rv_jit_context *ctx)
 {
 	int ret, branch_off;
 	struct bpf_prog *p = l->link.prog;
-	int cookie_off = offsetof(struct bpf_tramp_run_ctx, bpf_cookie);
+	int cookie_off = offsetof(struct bpf_tramp_run_ctx, bpf_cookie); //TODO: bpf_tramp_run_ctx
 
 	if (l->cookie) {
 		emit_imm(RV_REG_T1, l->cookie, ctx);
@@ -778,7 +1546,7 @@ static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off,
 
 	/* update branch with beqz */
 	if (ctx->insns) {
-		int offset = ninsns_rvoff(ctx->ninsns - branch_off);
+		int offset = ninsns_rvoff(ctx->ninsns - branch_off); //TODO: ninsns_rvoff
 		u32 insn = rv_beq(RV_REG_A0, RV_REG_ZERO, offset >> 1);
 		*(u32 *)(ctx->insns + branch_off) = insn;
 	}
@@ -794,6 +1562,24 @@ static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off,
 	return ret;
 }
 
+/**
+ * @brief Prepare a BPF trampoline for a given function
+ * @param im: The BPF trampoline image
+ * @param m: The BTF function model for the traced function
+ * @param tlinks: The BPF trampoline links
+ * @param func_addr: The address of the traced function
+ * @param flags: Flags that control the trampoline behavior
+ * @param ctx: The JIT context
+ *
+ * This function generates the assembly code for a BPF trampoline that can be
+ * used to call the traced function and handle various BPF hooks (e.g., fentry,
+ * fexit, modify_return). The trampoline is responsible for setting up the
+ * stack frame, saving and restoring registers, and invoking the BPF programs
+ * associated with the trampoline hooks.
+ *
+ * @return: The number of instructions in the generated trampoline, or a negative
+ * error code on failure.
+ */
 static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 					 const struct btf_func_model *m,
 					 struct bpf_tramp_links *tlinks,
@@ -804,7 +1590,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	int *branches_off = NULL;
 	int stack_size = 0, nregs = m->nr_args;
 	int retval_off, args_off, nregs_off, ip_off, run_ctx_off, sreg_off;
-	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY];
+	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY]; //TODO: bpf_tramp_links
 	struct bpf_tramp_links *fexit = &tlinks[BPF_TRAMP_FEXIT];
 	struct bpf_tramp_links *fmod_ret = &tlinks[BPF_TRAMP_MODIFY_RETURN];
 	bool is_struct_ops = flags & BPF_TRAMP_F_INDIRECT;
@@ -851,7 +1637,7 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	 *		    [ pads              ] pads for 16 bytes alignment
 	 */
 
-	if (flags & (BPF_TRAMP_F_ORIG_STACK | BPF_TRAMP_F_SHARE_IPMODIFY))
+	if (flags & (BPF_TRAMP_F_ORIG_STACK | BPF_TRAMP_F_SHARE_IPMODIFY)) //TODO: BPF_TRAMP_F_ORIG_STACK, BPF_TRAMP_F_SHARE_IPMODIFY
 		return -ENOTSUPP;
 
 	/* extra regiters for struct arguments */
@@ -1045,6 +1831,18 @@ out:
 	return ret;
 }
 
+/**
+ * @brief Calculate the size of the BPF trampoline for the
+ * given architecture.
+ *
+ * @param m: The BTF function model for the trampoline.
+ * @param flags: Flags to control the trampoline generation.
+ * @param tlinks: The BPF trampoline links.
+ * @param func_addr: The address of the function to be called by the trampoline.
+ *
+ * Returns the size of the trampoline in bytes, or a negative error code on
+ * failure.
+ */
 int arch_bpf_trampoline_size(const struct btf_func_model *m, u32 flags,
 			     struct bpf_tramp_links *tlinks, void *func_addr)
 {
@@ -1061,6 +1859,25 @@ int arch_bpf_trampoline_size(const struct btf_func_model *m, u32 flags,
 	return ret < 0 ? ret : ninsns_rvoff(ctx.ninsns);
 }
 
+/**
+ * @brief Prepare a BPF trampoline image for a specific architecture
+ *
+ * @param im: The BPF trampoline image to prepare
+ * @param image: The memory region to write the JITed trampoline instructions to
+ * @param image_end: The end of the memory region for the JITed trampoline instructions
+ * @param m: The BTF function model for the trampoline
+ * @param flags: Flags to control the trampoline generation
+ * @param tlinks: The trampoline links to be updated
+ * @param func_addr: The address of the function to be called by the trampoline
+ *
+ * This function prepares a BPF trampoline image for a specific architecture. It
+ * sets up the JIT context, calls the architecture-specific
+ * __arch_prepare_bpf_trampoline() function to generate the trampoline
+ * instructions, and flushes the instruction cache.
+ *
+ * @return The number of instructions in the trampoline, or a negative error code
+ *         on failure.
+ */
 int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 				void *image_end, const struct btf_func_model *m,
 				u32 flags, struct bpf_tramp_links *tlinks,
@@ -1088,6 +1905,7 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 
 	return ninsns_rvoff(ret);
 }
+
 
 int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		      bool extra_pass)
@@ -1802,6 +2620,27 @@ out_be:
 	return 0;
 }
 
+/**
+ * @brief Builds the prologue for the RISC-V JIT compiler.
+ *
+ * This function is responsible for setting up the stack frame and saving
+ * any necessary registers before the main body of the BPF program is
+ * executed. It performs the following tasks:
+ *
+ * 1. Rounds up the BPF stack depth to a multiple of 16 bytes and marks the
+ *    frame pointer register if the stack depth is non-zero.
+ * 2. Calculates the total stack adjustment needed to accommodate the saved
+ *    registers (return address, frame pointer, and callee-saved registers).
+ * 3. Emits the necessary instructions to adjust the stack pointer and save
+ *    the required registers.
+ * 4. Sets the frame pointer to the adjusted stack pointer.
+ * 5. Adjusts the stack pointer to accommodate the BPF program's stack usage.
+ * 6. Saves the tail call counter register if the program contains both calls
+ *    and tail calls.
+ *
+ * @param ctx The RISC-V JIT context containing the information about the
+ *            BPF program being compiled.
+ */
 void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 {
 	int i, stack_adjust = 0, store_offset, bpf_stack_adjust;
@@ -1888,11 +2727,21 @@ void bpf_jit_build_prologue(struct rv_jit_context *ctx)
 	ctx->stack_size = stack_adjust;
 }
 
+/**
+ * Builds the epilogue for the JIT-compiled BPF program.
+ *
+ * @param ctx The JIT compilation context.
+ */
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx)
 {
 	__build_epilogue(false, ctx);
 }
 
+/**
+ * Checks if the BPF JIT compiler supports calling kernel functions.
+ *
+ * @return true if the BPF JIT compiler supports calling kernel functions, false otherwise.
+ */
 bool bpf_jit_supports_kfunc_call(void)
 {
 	return true;
