@@ -9,20 +9,23 @@
 #include <linux/bpf_verifier.h>
 #include <linux/filter.h>
 #include <linux/kernel.h> // for print_hex_dump()
+#include <linux/list.h>
 
 #include "codegen.h"
 
-/************************
- STRUCTS
-************************/
+/***********************************
+ * structs
+ **********************************/
 
 /**
  * @param insn: BPF instruction
  * @param n: eBPF instruction number
+ * @param l: link on rvo_prog->insns list
  */
 typedef struct rvo_insn_meta {
 	struct bpf_insn insn;
 	unsigned short n;
+	struct list_head l;
 } rvo_insn_meta;
 
 /**
@@ -39,18 +42,19 @@ typedef struct rvo_prog {
 	rvo_insn_meta *verifier_meta;
 
 	unsigned int n_insns;
+	struct list_head insns;
 } rvo_prog;
 
 
-/************************
- funcs
-************************/
+/***********************************
+ * funcs
+ **********************************/
 
 typedef int (*instr_mapping_t)(rvo_prog *, rvo_insn_meta *);
 
-/*************************
- MAPPINGS BPF -> RV64
-*************************/
+/***********************************
+ * MAP bpf opcode -> RV64 assembly
+ **********************************/
 
 static const instr_mapping_t instr_cb[256] = {
 	[BPF_ALU64 | BPF_MOV | BPF_X] =	mov_reg64,
@@ -76,6 +80,7 @@ static const instr_mapping_t instr_cb[256] = {
 	[BPF_ALU64 | BPF_RSH | BPF_K] =	shr_imm64,
 	[BPF_ALU64 | BPF_ARSH | BPF_X] = ashr_reg64,
 	[BPF_ALU64 | BPF_ARSH | BPF_K] = ashr_imm64,
+
 	[BPF_ALU | BPF_MOV | BPF_X] =	mov_reg,
 	[BPF_ALU | BPF_MOV | BPF_K] =	mov_imm,
 	[BPF_ALU | BPF_XOR | BPF_X] =	xor_reg,
@@ -100,6 +105,7 @@ static const instr_mapping_t instr_cb[256] = {
 	[BPF_ALU | BPF_ARSH | BPF_X] =	ashr_reg,
 	[BPF_ALU | BPF_ARSH | BPF_K] =	ashr_imm,
 	[BPF_ALU | BPF_END | BPF_X] =	end_reg32,
+
 	[BPF_LD | BPF_IMM | BPF_DW] =	imm_ld8,
 	[BPF_LD | BPF_ABS | BPF_B] =	data_ld1,
 	[BPF_LD | BPF_ABS | BPF_H] =	data_ld2,
@@ -107,20 +113,24 @@ static const instr_mapping_t instr_cb[256] = {
 	[BPF_LD | BPF_IND | BPF_B] =	data_ind_ld1,
 	[BPF_LD | BPF_IND | BPF_H] =	data_ind_ld2,
 	[BPF_LD | BPF_IND | BPF_W] =	data_ind_ld4,
+
 	[BPF_LDX | BPF_MEM | BPF_B] =	mem_ldx1,
 	[BPF_LDX | BPF_MEM | BPF_H] =	mem_ldx2,
 	[BPF_LDX | BPF_MEM | BPF_W] =	mem_ldx4,
 	[BPF_LDX | BPF_MEM | BPF_DW] =	mem_ldx8,
+
 	[BPF_STX | BPF_MEM | BPF_B] =	mem_stx1,
 	[BPF_STX | BPF_MEM | BPF_H] =	mem_stx2,
 	[BPF_STX | BPF_MEM | BPF_W] =	mem_stx4,
 	[BPF_STX | BPF_MEM | BPF_DW] =	mem_stx8,
 	[BPF_STX | BPF_ATOMIC | BPF_W] =	mem_atomic4,
 	[BPF_STX | BPF_ATOMIC | BPF_DW] =	mem_atomic8,
+
 	[BPF_ST | BPF_MEM | BPF_B] =	mem_st1,
 	[BPF_ST | BPF_MEM | BPF_H] =	mem_st2,
 	[BPF_ST | BPF_MEM | BPF_W] =	mem_st4,
 	[BPF_ST | BPF_MEM | BPF_DW] =	mem_st8,
+
 	[BPF_JMP | BPF_JA | BPF_K] =	jump,
 	[BPF_JMP | BPF_JEQ | BPF_K] =	jeq_imm,
 	[BPF_JMP | BPF_JGT | BPF_K] =	cmp_imm,
@@ -144,6 +154,10 @@ static const instr_mapping_t instr_cb[256] = {
 	[BPF_JMP | BPF_JSLE | BPF_X] =  cmp_reg,
 	[BPF_JMP | BPF_JSET | BPF_X] =	jset_reg,
 	[BPF_JMP | BPF_JNE | BPF_X] =	jne_reg,
+
+	[BPF_JMP | BPF_CALL] =		call,
+	[BPF_JMP | BPF_EXIT] =		jmp_exit,
+
 	[BPF_JMP32 | BPF_JEQ | BPF_K] =	jeq32_imm,
 	[BPF_JMP32 | BPF_JGT | BPF_K] =	cmp_imm,
 	[BPF_JMP32 | BPF_JGE | BPF_K] =	cmp_imm,
@@ -166,8 +180,6 @@ static const instr_mapping_t instr_cb[256] = {
 	[BPF_JMP32 | BPF_JSLE | BPF_X] =cmp_reg,
 	[BPF_JMP32 | BPF_JSET | BPF_X] =jset_reg,
 	[BPF_JMP32 | BPF_JNE | BPF_X] =	jne_reg,
-	[BPF_JMP | BPF_CALL] =		call,
-	[BPF_JMP | BPF_EXIT] =		jmp_exit,
 };
 
 

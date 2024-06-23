@@ -5,13 +5,11 @@
 #ifndef MAIN_H
 #define MAIN_H
 
-#include "rv_jit/jit.h"
 #include "rv_jit/verifier.h"
-//#include "tmp.h"
 
-/****************************
- ops
-****************************/
+/***********************************
+ * funcs
+ **********************************/
 
 /**
  * This callback is invoked during BPF instruction verification.
@@ -75,6 +73,10 @@ int rvo_translate(struct bpf_prog *prog);
  * @param prog
  */
 void rvo_destroy(struct bpf_prog *prog);
+
+/***********************************
+ * struct
+ **********************************/
 
 static const struct bpf_prog_offload_ops rvo_offload_ops = {
 	.insn_hook = rvo_isn_verify,

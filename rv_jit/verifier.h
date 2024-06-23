@@ -7,13 +7,14 @@
 
 #include "jit.h"
 
+typedef int (*verifier_t)(rvo_prog *, struct bpf_verifier_env *);
+
 
 /***********************************
  * funcs
  **********************************/
 
-rvo_insn_meta *rvo_get_insn_meta(rvo_prog *nfp_prog, rvo_insn_meta *meta,
-          unsigned int insn_idx);
+rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta, const unsigned int insn_idx);
 
 int rvo_insn_opcode_supported(u8 code);
 
@@ -34,8 +35,6 @@ int is_alu_instruction(const rvo_insn_meta *meta);
 int verify_alu_instruction(rvo_prog *prog, struct bpf_verifier_env *env);
 
 
-typedef int (*verifier_t)(rvo_prog *, struct bpf_verifier_env *);
-
 /***********************************
  * MAP isn class -> verifier fn
  **********************************/
@@ -50,6 +49,5 @@ static const verifier_t verifier_map[8] = {
     [BPF_ALU] = verify_alu_instruction,
     [BPF_ALU64] = verify_alu_instruction,
 };
-
 
 #endif //VERIFIER_H

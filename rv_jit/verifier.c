@@ -4,69 +4,54 @@
 
 #include "verifier.h"
 
-int is_last_instruction(rvo_insn_meta *meta, unsigned int insn_idx) {
+#define get_meta_first_instruction(rvo_prog)    \
+    list_first_entry(&(rvo_prog)->insns, struct rvo_insn_meta, l)
 
-    // TODO: implement
-    return 0;
-}
+#define get_meta_last_instruction(rvo_prog)     \
+    list_last_entry(&(rvo_prog)->insns, struct rvo_insn_meta, l)
 
-int is_first_instruction(rvo_insn_meta *meta, unsigned int insn_idx) {
+#define get_meta_next_instruction(meta)	list_next_entry(meta, l)
 
-    // TODO: implement
-    return 0;
-}
+#define get_meta_prev_instruction(meta)	list_prev_entry(meta, l)
 
-int does_verifier_scan_backward(rvo_insn_meta *meta, unsigned int insn_idx) {
-
-    // TODO: implement
-    return 0;
-}
-
-rvo_insn_meta *get_meta_first_instruction(rvo_prog *prog) {
-
-    //TODO: implement
-    return prog->verifier_meta;
-}
-
-rvo_insn_meta *get_meta_last_instruction(rvo_prog *prog) {
-
-    //TODO: implement
-    return prog->verifier_meta;
-}
-
-rvo_insn_meta *get_meta_next_instruction(rvo_insn_meta *meta) {
-
-    //TODO: implement
-    return meta;
-}
-
-rvo_insn_meta *get_meta_prev_instruction(rvo_insn_meta *meta) {
-
-    //TODO: implement
-    return meta;
-}
-
-rvo_insn_meta * rvo_get_insn_meta(rvo_prog *prog, rvo_insn_meta *meta, unsigned int insn_idx) {
+rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta, const unsigned int insn_idx) {
 
     unsigned int i;
+
+    // calculate the distance (in terms of instructions) between the current instruction and the target instruction
+    // both in the forward and backward directions.
     unsigned int backward = meta->n - insn_idx;
     unsigned int forward = insn_idx - meta->n;
 
-    if (is_last_instruction(meta, insn_idx)) {
+    // number of instructions remaining in the program from the current position
+    const unsigned int remaining = prog->n_insns - insn_idx - 1;
+
+    if (min(forward, backward) > remaining) {
+
+        // the target instruction is beyond the end of the program
         backward = prog->n_insns - insn_idx - 1;
         meta = get_meta_last_instruction(prog);
     }
-    if (is_first_instruction(meta, insn_idx)) {
+    if (min(forward, backward) > insn_idx && backward > insn_idx) {
+
+        // the target instruction is before the start of the program
         forward = insn_idx;
         meta = get_meta_first_instruction(prog);
     }
 
-    if (forward < backward)
-        for (i = 0; i < forward; i++)
+    if (forward < backward) {
+
+        // Iterate forward times using get_meta_next_instruction(meta) to move to the target instruction metadata.
+        for (i = 0; i < forward; i++) {
             meta = get_meta_next_instruction(meta);
-    else
-        for (i = 0; i < backward; i++)
+        }
+    } else {
+
+        // Iterate backward times using get_meta_prev_instruction(meta) to move to the target instruction metadata.
+        for (i = 0; i < backward; i++) {
             meta = get_meta_prev_instruction(meta);
+        }
+    }
 
     return meta;
 }
