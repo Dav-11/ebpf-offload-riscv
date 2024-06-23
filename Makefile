@@ -6,38 +6,25 @@ ifeq ($(shell uname -s),Linux)
   KERNEL_VERSION := $(shell uname -r | cut -d- -f1)
 endif
 
-# Define a function to remove trailing ".0" (if needed)
-ifeq ($(findstring .0,$(KERNEL_VERSION)), $(KERNEL_VERSION))
-  KERNEL_VERSION_NUMBER := $(KERNEL_VERSION)
-else
-  KERNEL_VERSION_NUMBER := $(subst .0,,$(KERNEL_VERSION))
-endif
-
-KERNEL_VERSION_MAJOR	:= $(shell echo $(KERNEL_VERSION) | cut -d. -f1)
-
-KERNEL_URL				:= https://cdn.kernel.org/pub/linux/kernel/v$(KERNEL_VERSION_MAJOR).x/linux-$(KERNEL_VERSION_NUMBER).tar.xz
-UNTAR_DIR				:= linux-$(KERNEL_VERSION_NUMBER)
-TAR_FILE				:= $(UNTAR_DIR).tar.xz
-
 KDIR ?= /lib/modules/$(shell uname -r)/build
 
 PWD				:= $(shell pwd)
 EXTRA_CFLAGS	+= -DDEBUG
 obj-m			+= ebpf_offload_riscv.o
 
-LIB_PATH		:= $(abspath ./libs)
-LINUX_PATH		:= $(abspath $(LIB_PATH)/linux)
-
 CONFIG_ARCH_RV64I := y
 
 ebpf_offload_riscv-y := \
 	main.o \
+	offload_prog.o \
+	offload_maps.o \
 	rv_jit/jit_core.o \
-	rv_jit/jit_regs.o \
-	rv_jit/jit_codegen_generic.o \
-	rv_jit/bpf_jit_comp64.o \
-	rv_jit/memory.o \
-	rv_jit/utils.o
+	rv_jit/verifier.o
+	#rv_jit/jit_regs.o \
+	#rv_jit/jit_codegen_generic.o \
+	#rv_jit/bpf_jit_comp64.o \
+	#rv_jit/memory.o \
+	#rv_jit/utils.o
 
 ifeq ($(CONFIG_ARCH_RV64I),y)
 	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp64.o
@@ -58,23 +45,9 @@ else
 	MAKEFLAGS += --no-print-directory
 endif
 
-all: $(LINUX_PATH) format #ebpf_offload_riscv.ko install load
+all: format ebpf_offload_riscv.ko
 
-$(LINUX_PATH):
-	$(call msg,CURL,$(KERNEL_URL))
-	$(Q) curl --output $(TAR_FILE) -s $(KERNEL_URL)
-
-	$(call msg,UNTAR,$(TAR_FILE))
-	$(Q) tar -xf $(TAR_FILE)
-
-	$(call msg,MV,$(LINUX_PATH))
-	$(Q) mv $(UNTAR_DIR) $(LINUX_PATH)
-
-	$(call msg,RM,$(TAR_FILE))
-	$(Q) rm -f $(TAR_FILE)
-
-ebpf_offload_riscv.ko: $(LINUX_PATH)
-
+ebpf_offload_riscv.ko:
 	$(call msg,MAKE,$@)
 	$(Q) $(MAKE) -C $(KDIR) M=$(PWD) modules
 
@@ -104,7 +77,7 @@ format:
 	@echo
 	@echo "--- Formatting the code ---"
 	@echo
-	clang-format -i -style=file rv_jit/*.c rv_jit/*.h *.c
+	clang-format -i -style=file rv_jit/*.c rv_jit/*.h *.c *.h
 
 clean-module:
 	@echo

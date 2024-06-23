@@ -62,6 +62,7 @@ struct rv_pt_regs {
  * @param new_addr
  * @return
  */
-int rv_bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type, void *old_addr, void *new_addr);
+int rv_bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
+			  void *old_addr, void *new_addr);
 
 #endif

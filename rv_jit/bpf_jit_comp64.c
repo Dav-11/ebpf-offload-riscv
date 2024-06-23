@@ -181,7 +181,8 @@ static bool seen_reg(int reg, struct rv_jit_context *ctx)
 	case RV_CTX_F_SEEN_S4:
 	case RV_CTX_F_SEEN_S5:
 	case RV_CTX_F_SEEN_S6:
-		return test_bit(reg, &ctx->flags); // TODO: test_bit() - keep x86
+		return test_bit(reg,
+				&ctx->flags); // TODO: test_bit() - keep x86
 	}
 	return false;
 }
@@ -1361,7 +1362,8 @@ static int add_exception_handler(const struct bpf_insn *insn,
 	 * fault.
 	 */
 	fixup_offset = (long)&ex->fixup - (pc + insn_len * sizeof(u16));
-	if (!FIELD_FIT(BPF_FIXUP_OFFSET_MASK, fixup_offset)) //TODO: FIELD_FIT - okish
+	if (!FIELD_FIT(BPF_FIXUP_OFFSET_MASK,
+		       fixup_offset)) //TODO: FIELD_FIT - okish
 		return -ERANGE;
 
 	/*
@@ -1373,7 +1375,8 @@ static int add_exception_handler(const struct bpf_insn *insn,
 
 	ex->insn = ins_offset;
 
-	ex->fixup = FIELD_PREP(BPF_FIXUP_OFFSET_MASK, fixup_offset) | //TODO: FIELD_PREP - okish
+	ex->fixup = FIELD_PREP(BPF_FIXUP_OFFSET_MASK,
+			       fixup_offset) | //TODO: FIELD_PREP - okish
 		    FIELD_PREP(BPF_FIXUP_REG_MASK, dst_reg);
 	ex->type = EX_TYPE_BPF;
 
@@ -1400,8 +1403,9 @@ static int gen_jump_or_nops(void *target, void *ip, u32 *insns, bool is_call)
 				  false, &ctx);
 }
 
-int rv_bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type, // from bpf.h
-		       void *old_addr, void *new_addr)
+int rv_bpf_arch_text_poke(void *ip,
+			  enum bpf_text_poke_type poke_type, // from bpf.h
+			  void *old_addr, void *new_addr)
 {
 	u32 old_insns[RV_FENTRY_NINSNS], new_insns[RV_FENTRY_NINSNS];
 	bool is_call = poke_type == BPF_MOD_CALL;
@@ -1425,7 +1429,8 @@ int rv_bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type, // from b
 	cpus_read_lock(); //TODO: cpus_read_lock, cpus_read_unlock
 	mutex_lock(&text_mutex); //TODO: mutex_lock, text_mutex, mutex_unlock
 	if (memcmp(ip, new_insns, RV_FENTRY_NINSNS * 4))
-		ret = patch_text(ip, new_insns, RV_FENTRY_NINSNS); //TODO: patch_text
+		ret = patch_text(ip, new_insns,
+				 RV_FENTRY_NINSNS); //TODO: patch_text
 	mutex_unlock(&text_mutex);
 	cpus_read_unlock();
 
@@ -1497,13 +1502,16 @@ static void restore_args(int nregs, int args_off, struct rv_jit_context *ctx)
  *
  * @return 0 on success, or a negative error code on failure
  */
-static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off, //TODO: understand if tries to run code in kernel (bc it cannot if it is compiled for riscv)
-			   int retval_off, int run_ctx_off, bool save_ret,
-			   struct rv_jit_context *ctx)
+static int invoke_bpf_prog(
+	struct bpf_tramp_link *l,
+	int args_off, //TODO: understand if tries to run code in kernel (bc it cannot if it is compiled for riscv)
+	int retval_off, int run_ctx_off, bool save_ret,
+	struct rv_jit_context *ctx)
 {
 	int ret, branch_off;
 	struct bpf_prog *p = l->link.prog;
-	int cookie_off = offsetof(struct bpf_tramp_run_ctx, bpf_cookie); //TODO: bpf_tramp_run_ctx
+	int cookie_off = offsetof(struct bpf_tramp_run_ctx,
+				  bpf_cookie); //TODO: bpf_tramp_run_ctx
 
 	if (l->cookie) {
 		emit_imm(RV_REG_T1, l->cookie, ctx);
@@ -1546,7 +1554,8 @@ static int invoke_bpf_prog(struct bpf_tramp_link *l, int args_off, //TODO: under
 
 	/* update branch with beqz */
 	if (ctx->insns) {
-		int offset = ninsns_rvoff(ctx->ninsns - branch_off); //TODO: ninsns_rvoff
+		int offset = ninsns_rvoff(ctx->ninsns -
+					  branch_off); //TODO: ninsns_rvoff
 		u32 insn = rv_beq(RV_REG_A0, RV_REG_ZERO, offset >> 1);
 		*(u32 *)(ctx->insns + branch_off) = insn;
 	}
@@ -1590,7 +1599,8 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	int *branches_off = NULL;
 	int stack_size = 0, nregs = m->nr_args;
 	int retval_off, args_off, nregs_off, ip_off, run_ctx_off, sreg_off;
-	struct bpf_tramp_links *fentry = &tlinks[BPF_TRAMP_FENTRY]; //TODO: bpf_tramp_links
+	struct bpf_tramp_links *fentry =
+		&tlinks[BPF_TRAMP_FENTRY]; //TODO: bpf_tramp_links
 	struct bpf_tramp_links *fexit = &tlinks[BPF_TRAMP_FEXIT];
 	struct bpf_tramp_links *fmod_ret = &tlinks[BPF_TRAMP_MODIFY_RETURN];
 	bool is_struct_ops = flags & BPF_TRAMP_F_INDIRECT;
@@ -1637,7 +1647,9 @@ static int __arch_prepare_bpf_trampoline(struct bpf_tramp_image *im,
 	 *		    [ pads              ] pads for 16 bytes alignment
 	 */
 
-	if (flags & (BPF_TRAMP_F_ORIG_STACK | BPF_TRAMP_F_SHARE_IPMODIFY)) //TODO: BPF_TRAMP_F_ORIG_STACK, BPF_TRAMP_F_SHARE_IPMODIFY
+	if (flags &
+	    (BPF_TRAMP_F_ORIG_STACK |
+	     BPF_TRAMP_F_SHARE_IPMODIFY)) //TODO: BPF_TRAMP_F_ORIG_STACK, BPF_TRAMP_F_SHARE_IPMODIFY
 		return -ENOTSUPP;
 
 	/* extra regiters for struct arguments */
@@ -1905,7 +1917,6 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 
 	return ninsns_rvoff(ret);
 }
-
 
 int bpf_jit_emit_insn(const struct bpf_insn *insn, struct rv_jit_context *ctx,
 		      bool extra_pass)

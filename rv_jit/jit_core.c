@@ -4,8 +4,14 @@
 
 #include "jit.h"
 
-struct bpf_prog *my_bpf_jit_compile(struct bpf_prog *prog)
+static int rvo_bpf_jit_compile(struct bpf_prog *prog)
 {
+
+	if(LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)) {
+		return -EOPNOTSUPP;
+	}
+
+
 	unsigned int prog_size = 0, extable_size = 0;
 	bool tmp_blinded = false, extra_pass = false;
 	struct bpf_prog *tmp, *orig_prog = prog;
@@ -40,7 +46,7 @@ struct bpf_prog *my_bpf_jit_compile(struct bpf_prog *prog)
 
 	ctx = &jit_data->ctx;
 
-/* this part is for when the function is called but the optimization was already done, can it happen ?
+	/* this part is for when the function is called but the optimization was already done, can it happen ?
 	// if offset already exists => this is not the first pass
 	if (ctx->offset) {
 		extra_pass = true;
