@@ -27,9 +27,12 @@ int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
 		return -EINVAL;
 	}
 
+	if (!verifier_map[BPF_CLASS(meta->insn.code)](prog, env)) {
 
+		pr_err("Unsupported instruction found");
+		return -EINVAL;
+	}
 
-	// TODO: implement
 	return 0;
 }
 

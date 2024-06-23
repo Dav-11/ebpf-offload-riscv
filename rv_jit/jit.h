@@ -18,15 +18,18 @@
 
 /**
  * @param insn: BPF instruction
+ * @param n: eBPF instruction number
  */
 typedef struct rvo_insn_meta {
 	struct bpf_insn insn;
+	unsigned short n;
 } rvo_insn_meta;
 
 /**
  * @parm prog: pointer to machine code array
  * @param prog_len: number of valid instructions in @prog array
  * @param __prog_alloc_len: alloc size of @prog array
+ * @param n_insns: number of instructions in the program
  */
 typedef struct rvo_prog {
 	u64 *prog;
@@ -34,6 +37,8 @@ typedef struct rvo_prog {
 	unsigned int __prog_alloc_len;
 
 	rvo_insn_meta *verifier_meta;
+
+	unsigned int n_insns;
 } rvo_prog;
 
 
