@@ -5,7 +5,7 @@
 #ifndef MAIN_H
 #define MAIN_H
 
-#include "rv_jit/verifier.h"
+#include "verifier.h"
 
 /***********************************
  * funcs

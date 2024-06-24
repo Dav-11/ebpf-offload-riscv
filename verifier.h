@@ -5,7 +5,7 @@
 #ifndef VERIFIER_H
 #define VERIFIER_H
 
-#include "jit.h"
+#include "rv_jit/jit.h"
 
 typedef int (*verifier_t)(rvo_prog *, struct bpf_verifier_env *);
 
@@ -36,7 +36,7 @@ int verify_alu_instruction(rvo_prog *prog, struct bpf_verifier_env *env);
 
 
 /***********************************
- * MAP isn class -> verifier fn
+ * MAP insn class -> verifier fn
  **********************************/
 
 static const verifier_t verifier_map[8] = {
