@@ -129,7 +129,7 @@ bpf instructions have fixed size length, and comes in two versions:
 +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 ```
 
-### Extended Instructions (128 bit length)
+### Wide Instructions (128 bit length)
 
 <table>
     <tr>
@@ -504,6 +504,14 @@ Thus, ‘PC += 1’ skips execution of the next instruction if it’s a basic in
 The `JMP` class permits a 16-bit jump offset specified by the ‘offset’ field, whereas the `JMP32` class permits a 32-bit jump offset specified by the ‘imm’ field.
 A > 16-bit conditional jump may be converted to a < 16-bit conditional jump plus a 32-bit unconditional jump.
 
+### opcode
+
+```
++-+-+-+-+-+-+-+-+
+|  code |s|class|
++-+-+-+-+-+-+-+-+
+```
+
 ### Helper funcs
 - Helper functions are a concept whereby BPF programs can call into a set of function calls exposed by the underlying platform.
 - Historically, each helper function was identified by a **static ID encoded in the ‘imm’ field**. The available helper functions may differ for each program type, but static IDs are unique across all program types.
@@ -515,4 +523,126 @@ The offset is encoded in the ‘imm’ field of the call instruction. An EXIT wi
 
 ### Kfuncs
 
+## Load & store instructions (classes `LD`, `LDX`, `ST`, `STX`)
 
+### opcode
+
+```
++-+-+-+-+-+-+-+-+
+|mode |sz |class|
++-+-+-+-+-+-+-+-+
+```
+
+#### mode
+
+| mode modifier | value | description                         | reference                                 |
+|---------------|-------|-------------------------------------|-------------------------------------------|
+| IMM           | 0     | 64-bit immediate instructions       | [64-bit immediate instructions]()         |
+| ABS           | 1     | legacy BPF packet access (absolute) | [Legacy BPF Packet access instructions]() |
+| IND           | 2     | legacy BPF packet access (indirect) | [Legacy BPF Packet access instructions]() |
+| MEM           | 3     | regular load and store operations   | [Regular load and store operations]()     |
+| MEMSX         | 4     | sign-extension load operations      | [Sign-extension load operations]()        |
+| ATOMIC        | 6     | atomic operations                   | [Atomic operations]()                     |
+
+#### sz (size)
+
+| size | value | description           |
+|------|-------|-----------------------|
+| W    | 0     | word (4 bytes)        |
+| H    | 1     | half word (2 bytes)   |
+| B    | 2     | byte                  |
+| DW   | 3     | double word (8 bytes) |
+
+### Regular load and store operations
+
+The `MEM` mode modifier is used to encode regular load and store instructions that transfer data between a register and
+memory.
+
+`{MEM, <size>, STX}`:
+
+```
+*(size *) (dst + offset) = src
+```
+
+`{MEM, <size>, ST}`:
+
+```
+*(size *) (dst + offset) = imm
+```
+
+### Sign-extension load operations
+
+The `MEMSX` mode modifier is used to encode sign-extension load instructions that transfer data between a register and
+memory.
+
+`{MEMSX, <size>, LDX}`:
+
+```
+dst = *(signed size *) (src + offset)
+```
+
+Where ‘<size>’ is one of: `B`, `H`, or `W`, and ‘signed size’ is one of: s8, s16, or s32.
+
+### Atomic operations
+
+All atomic operations supported by BPF are encoded as store operations that use the ATOMIC mode modifier as follows:
+
+- `{ATOMIC, W, STX}` for 32-bit operations, which are part of the “atomic32” conformance group.
+- `{ATOMIC, DW, STX}` for 64-bit operations, which are part of the “atomic64” conformance group.
+- 8-bit and 16-bit wide atomic operations are not supported.
+
+The ‘imm’ field is used to encode the actual atomic operation.
+Simple atomic operation use a subset of the values defined to encode arithmetic operations in the ‘imm’ field to encode
+the atomic operation:
+
+| imm | value | description |
+|-----|-------|-------------|
+| ADD | 0x00  | atomic add  |
+| OR  | 0x40  | atomic or   |
+| AND | 0x50  | atomic and  |
+| XOR | 0xa0  | atomic xor  |
+
+In addition to the simple atomic operations, there also is a modifier and two complex atomic operations:
+
+| imm     | value         | description                 |
+|---------|---------------|-----------------------------|
+| FETCH   | 0x01          | modifier: return old value  |
+| XCHG    | 0xe0 \| FETCH | atomic exchange             |
+| CMPXCHG | 0xf0 \| FETCH | atomic compare and exchange |
+
+If the `FETCH` flag is set, then the operation also overwrites src with the value that was in memory before it was
+modified.
+
+The `XCHG` operation atomically exchanges src with the value addressed by dst + offset.
+
+The `CMPXCHG` operation atomically compares the value addressed by dst + offset with `R0`.
+If they match, the value addressed by dst + offset is replaced with src.
+In either case, the value that was at dst + offset before the operation is zero-extended and loaded back to `R0`.
+
+### Immediate instructions
+
+Instructions with the `IMM` ‘mode’ modifier use the wide instruction encoding defined in Instruction encoding, and use
+the ‘src_reg’ field of the basic instruction to hold an opcode subtype.
+
+The following table defines a set of {IMM, DW, LD} instructions with opcode subtypes in the ‘src_reg’ field, using new
+terms such as “map” defined further below:
+
+| src_reg | pseudocode                                | imm type    | dst type     |
+|---------|-------------------------------------------|-------------|--------------|
+| 0x0     | dst = (next_imm << 32) \| imm             | integer     | integer      |
+| 0x1     | dst = map_by_fd(imm)                      | map fd      | map          |
+| 0x2     | dst = map_val(map_by_fd(imm)) + next_imm  | map fd      | data address |
+| 0x3     | dst = var_addr(imm)                       | variable id | data address |
+| 0x4     | dst = code_addr(imm)                      | integer     | code address |
+| 0x5     | dst = map_by_idx(imm)                     | map index   | map          |
+| 0x6     | dst = map_val(map_by_idx(imm)) + next_imm | map index   | data address |
+
+where:
+
+- map_by_fd(imm) means to convert a 32-bit file descriptor into an address of a map (see Maps)
+- map_by_idx(imm) means to convert a 32-bit index into an address of a map
+- map_val(map) gets the address of the first value in a given map
+- var_addr(imm) gets the address of a platform variable (see Platform Variables) with a given id
+- code_addr(imm) gets the address of the instruction at a specified relative offset in number of (64-bit) instructions
+- the ‘imm type’ can be used by disassemblers for display
+- the ‘dst type’ can be used for verification and JIT compilation purposes
