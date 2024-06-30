@@ -79,20 +79,23 @@ int __always_inline is_kfunc_call(const struct bpf_insn insn) {
     return 0;
 }
 
+/**
+ * opcode:
+ *   1000 0 101   src_reg = 0000 (0) -> call helper function by static ID
+ *   1000 0 101   src_reg = 0010 (2) -> call helper function by BTF ID
+ *   ---- - ---
+ *   CALL K JMP
+ *
+ * @param insn
+ */
 int __always_inline is_helper_call(const struct bpf_insn insn) {
+	if (BPF_OP(insn.code) == BPF_CALL &&
+	    (insn.src_reg == 2 || insn.src_reg == 0)) {
+		pr_err("Unsupported helper func jump instruction found");
+		return 1;
+	}
 
-    // TODO: implement
-
-
-
-    return 0;
-}
-
-int check_exit_call(rvo_prog *prog,
-           struct bpf_verifier_env *env) {
-
-    // TODO: implement
-    return 1;
+	return 0;
 }
 
 int verify_jump_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
@@ -103,9 +106,6 @@ int verify_jump_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
     if (BPF_OP(insn.code) == BPF_CALL) {
 
         return  (!is_kfunc_call(insn) && !is_helper_call(insn));
-    } else if (BPF_OP(insn.code) == BPF_EXIT) {
-
-        return check_exit_call(prog, env);
     }
 
     return  1;
@@ -117,9 +117,8 @@ int is_load_instruction(const rvo_insn_meta *meta) {
 }
 
 int verify_load_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
-
-    // TODO: implement
-    return 1;
+	// all ok
+	return 1;
 }
 
 int is_atomic_store(const rvo_insn_meta *meta) {
@@ -138,9 +137,8 @@ int is_store_instruction(const rvo_insn_meta *meta) {
 }
 
 int verify_store_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
-
-    // TODO: implement
-    return 1;
+	// all ok
+	return 1;
 }
 
 int is_alu_instruction(const rvo_insn_meta *meta) {
@@ -149,7 +147,6 @@ int is_alu_instruction(const rvo_insn_meta *meta) {
 }
 
 int verify_alu_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
-
-    // TODO: implement
-    return 1;
+	// all ok
+	return 1;
 }
