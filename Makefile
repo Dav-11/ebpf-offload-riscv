@@ -18,8 +18,8 @@ ebpf_offload_riscv-y := \
 	main.o \
 	offload_prog.o \
 	offload_maps.o \
-	verifier.o \
-	rv_jit/jit_core.o
+	verifier.o
+	#rv_jit/jit_core.o
 	#rv_jit/jit_regs.o \
 	#rv_jit/jit_codegen_generic.o \
 	#rv_jit/bpf_jit_comp64.o \

@@ -2,15 +2,15 @@
 // Created by Davide Collovigh on 24/05/24.
 //
 
+#include <stdbool.h>
+
 #include "jit.h"
 
 static int rvo_bpf_jit_compile(struct bpf_prog *prog)
 {
-
-	if(LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)) {
+	if (LINUX_VERSION_CODE < KERNEL_VERSION(4, 20, 0)) {
 		return -EOPNOTSUPP;
 	}
-
 
 	unsigned int prog_size = 0, extable_size = 0;
 	bool tmp_blinded = false, extra_pass = false;

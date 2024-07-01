@@ -9,41 +9,11 @@
 #include <linux/bpf_verifier.h>
 #include <linux/filter.h>
 #include <linux/kernel.h> // for print_hex_dump()
-#include <linux/list.h>
+#include <asm-generic/errno.h>
 
 #include "codegen.h"
+#include "base.h"
 
-/***********************************
- * structs
- **********************************/
-
-/**
- * @param insn: BPF instruction
- * @param n: eBPF instruction number
- * @param l: link on rvo_prog->insns list
- */
-typedef struct rvo_insn_meta {
-	struct bpf_insn insn;
-	unsigned short n;
-	struct list_head l;
-} rvo_insn_meta;
-
-/**
- * @parm prog: pointer to machine code array
- * @param prog_len: number of valid instructions in @prog array
- * @param __prog_alloc_len: alloc size of @prog array
- * @param n_insns: number of instructions in the program
- */
-typedef struct rvo_prog {
-	u64 *prog;
-	unsigned int prog_len;
-	unsigned int __prog_alloc_len;
-
-	rvo_insn_meta *verifier_meta;
-
-	unsigned int n_insns;
-	struct list_head insns;
-} rvo_prog;
 
 
 /***********************************
@@ -57,169 +27,139 @@ typedef int (*instr_mapping_t)(rvo_prog *, rvo_insn_meta *);
  **********************************/
 
 static const instr_mapping_t instr_cb[256] = {
-	[BPF_ALU64 | BPF_MOV | BPF_X] =	mov_reg64,
-	[BPF_ALU64 | BPF_MOV | BPF_K] =	mov_imm64,
-	[BPF_ALU64 | BPF_XOR | BPF_X] =	xor_reg64,
-	[BPF_ALU64 | BPF_XOR | BPF_K] =	xor_imm64,
-	[BPF_ALU64 | BPF_AND | BPF_X] =	and_reg64,
-	[BPF_ALU64 | BPF_AND | BPF_K] =	and_imm64,
-	[BPF_ALU64 | BPF_OR | BPF_X] =	or_reg64,
-	[BPF_ALU64 | BPF_OR | BPF_K] =	or_imm64,
-	[BPF_ALU64 | BPF_ADD | BPF_X] =	add_reg64,
-	[BPF_ALU64 | BPF_ADD | BPF_K] =	add_imm64,
-	[BPF_ALU64 | BPF_SUB | BPF_X] =	sub_reg64,
-	[BPF_ALU64 | BPF_SUB | BPF_K] =	sub_imm64,
-	[BPF_ALU64 | BPF_MUL | BPF_X] =	mul_reg64,
-	[BPF_ALU64 | BPF_MUL | BPF_K] =	mul_imm64,
-	[BPF_ALU64 | BPF_DIV | BPF_X] =	div_reg64,
-	[BPF_ALU64 | BPF_DIV | BPF_K] =	div_imm64,
-	[BPF_ALU64 | BPF_NEG] =		neg_reg64,
-	[BPF_ALU64 | BPF_LSH | BPF_X] =	shl_reg64,
-	[BPF_ALU64 | BPF_LSH | BPF_K] =	shl_imm64,
-	[BPF_ALU64 | BPF_RSH | BPF_X] =	shr_reg64,
-	[BPF_ALU64 | BPF_RSH | BPF_K] =	shr_imm64,
+	[BPF_ALU64 | BPF_MOV | BPF_X] = mov_reg64,
+	[BPF_ALU64 | BPF_MOV | BPF_K] = mov_imm64,
+	[BPF_ALU64 | BPF_XOR | BPF_X] = xor_reg64,
+	[BPF_ALU64 | BPF_XOR | BPF_K] = xor_imm64,
+	[BPF_ALU64 | BPF_AND | BPF_X] = and_reg64,
+	[BPF_ALU64 | BPF_AND | BPF_K] = and_imm64,
+	[BPF_ALU64 | BPF_OR | BPF_X] = or_reg64,
+	[BPF_ALU64 | BPF_OR | BPF_K] = or_imm64,
+	[BPF_ALU64 | BPF_ADD | BPF_X] = add_reg64,
+	[BPF_ALU64 | BPF_ADD | BPF_K] = add_imm64,
+	[BPF_ALU64 | BPF_SUB | BPF_X] = sub_reg64,
+	[BPF_ALU64 | BPF_SUB | BPF_K] = sub_imm64,
+	[BPF_ALU64 | BPF_MUL | BPF_X] = mul_reg64,
+	[BPF_ALU64 | BPF_MUL | BPF_K] = mul_imm64,
+	[BPF_ALU64 | BPF_DIV | BPF_X] = div_reg64,
+	[BPF_ALU64 | BPF_DIV | BPF_K] = div_imm64,
+	[BPF_ALU64 | BPF_NEG] = neg_reg64,
+	[BPF_ALU64 | BPF_LSH | BPF_X] = shl_reg64,
+	[BPF_ALU64 | BPF_LSH | BPF_K] = shl_imm64,
+	[BPF_ALU64 | BPF_RSH | BPF_X] = shr_reg64,
+	[BPF_ALU64 | BPF_RSH | BPF_K] = shr_imm64,
 	[BPF_ALU64 | BPF_ARSH | BPF_X] = ashr_reg64,
 	[BPF_ALU64 | BPF_ARSH | BPF_K] = ashr_imm64,
 
-	[BPF_ALU | BPF_MOV | BPF_X] =	mov_reg,
-	[BPF_ALU | BPF_MOV | BPF_K] =	mov_imm,
-	[BPF_ALU | BPF_XOR | BPF_X] =	xor_reg,
-	[BPF_ALU | BPF_XOR | BPF_K] =	xor_imm,
-	[BPF_ALU | BPF_AND | BPF_X] =	and_reg,
-	[BPF_ALU | BPF_AND | BPF_K] =	and_imm,
-	[BPF_ALU | BPF_OR | BPF_X] =	or_reg,
-	[BPF_ALU | BPF_OR | BPF_K] =	or_imm,
-	[BPF_ALU | BPF_ADD | BPF_X] =	add_reg,
-	[BPF_ALU | BPF_ADD | BPF_K] =	add_imm,
-	[BPF_ALU | BPF_SUB | BPF_X] =	sub_reg,
-	[BPF_ALU | BPF_SUB | BPF_K] =	sub_imm,
-	[BPF_ALU | BPF_MUL | BPF_X] =	mul_reg,
-	[BPF_ALU | BPF_MUL | BPF_K] =	mul_imm,
-	[BPF_ALU | BPF_DIV | BPF_X] =	div_reg,
-	[BPF_ALU | BPF_DIV | BPF_K] =	div_imm,
-	[BPF_ALU | BPF_NEG] =		neg_reg,
-	[BPF_ALU | BPF_LSH | BPF_X] =	shl_reg,
-	[BPF_ALU | BPF_LSH | BPF_K] =	shl_imm,
-	[BPF_ALU | BPF_RSH | BPF_X] =	shr_reg,
-	[BPF_ALU | BPF_RSH | BPF_K] =	shr_imm,
-	[BPF_ALU | BPF_ARSH | BPF_X] =	ashr_reg,
-	[BPF_ALU | BPF_ARSH | BPF_K] =	ashr_imm,
-	[BPF_ALU | BPF_END | BPF_X] =	end_reg32,
+	[BPF_ALU | BPF_MOV | BPF_X] = mov_reg,
+	[BPF_ALU | BPF_MOV | BPF_K] = mov_imm,
+	[BPF_ALU | BPF_XOR | BPF_X] = xor_reg,
+	[BPF_ALU | BPF_XOR | BPF_K] = xor_imm,
+	[BPF_ALU | BPF_AND | BPF_X] = and_reg,
+	[BPF_ALU | BPF_AND | BPF_K] = and_imm,
+	[BPF_ALU | BPF_OR | BPF_X] = or_reg,
+	[BPF_ALU | BPF_OR | BPF_K] = or_imm,
+	[BPF_ALU | BPF_ADD | BPF_X] = add_reg,
+	[BPF_ALU | BPF_ADD | BPF_K] = add_imm,
+	[BPF_ALU | BPF_SUB | BPF_X] = sub_reg,
+	[BPF_ALU | BPF_SUB | BPF_K] = sub_imm,
+	[BPF_ALU | BPF_MUL | BPF_X] = mul_reg,
+	[BPF_ALU | BPF_MUL | BPF_K] = mul_imm,
+	[BPF_ALU | BPF_DIV | BPF_X] = div_reg,
+	[BPF_ALU | BPF_DIV | BPF_K] = div_imm,
+	[BPF_ALU | BPF_NEG] = neg_reg,
+	[BPF_ALU | BPF_LSH | BPF_X] = shl_reg,
+	[BPF_ALU | BPF_LSH | BPF_K] = shl_imm,
+	[BPF_ALU | BPF_RSH | BPF_X] = shr_reg,
+	[BPF_ALU | BPF_RSH | BPF_K] = shr_imm,
+	[BPF_ALU | BPF_ARSH | BPF_X] = ashr_reg,
+	[BPF_ALU | BPF_ARSH | BPF_K] = ashr_imm,
+	[BPF_ALU | BPF_END | BPF_X] = end_reg32,
 
-	[BPF_LD | BPF_IMM | BPF_DW] =	imm_ld8,
-	[BPF_LD | BPF_ABS | BPF_B] =	data_ld1,
-	[BPF_LD | BPF_ABS | BPF_H] =	data_ld2,
-	[BPF_LD | BPF_ABS | BPF_W] =	data_ld4,
-	[BPF_LD | BPF_IND | BPF_B] =	data_ind_ld1,
-	[BPF_LD | BPF_IND | BPF_H] =	data_ind_ld2,
-	[BPF_LD | BPF_IND | BPF_W] =	data_ind_ld4,
+	[BPF_LD | BPF_IMM | BPF_DW] = imm_ld8,
+	[BPF_LD | BPF_ABS | BPF_B] = data_ld1,
+	[BPF_LD | BPF_ABS | BPF_H] = data_ld2,
+	[BPF_LD | BPF_ABS | BPF_W] = data_ld4,
+	[BPF_LD | BPF_IND | BPF_B] = data_ind_ld1,
+	[BPF_LD | BPF_IND | BPF_H] = data_ind_ld2,
+	[BPF_LD | BPF_IND | BPF_W] = data_ind_ld4,
 
-	[BPF_LDX | BPF_MEM | BPF_B] =	mem_ldx1,
-	[BPF_LDX | BPF_MEM | BPF_H] =	mem_ldx2,
-	[BPF_LDX | BPF_MEM | BPF_W] =	mem_ldx4,
-	[BPF_LDX | BPF_MEM | BPF_DW] =	mem_ldx8,
+	[BPF_LDX | BPF_MEM | BPF_B] = mem_ldx1,
+	[BPF_LDX | BPF_MEM | BPF_H] = mem_ldx2,
+	[BPF_LDX | BPF_MEM | BPF_W] = mem_ldx4,
+	[BPF_LDX | BPF_MEM | BPF_DW] = mem_ldx8,
 
-	[BPF_STX | BPF_MEM | BPF_B] =	mem_stx1,
-	[BPF_STX | BPF_MEM | BPF_H] =	mem_stx2,
-	[BPF_STX | BPF_MEM | BPF_W] =	mem_stx4,
-	[BPF_STX | BPF_MEM | BPF_DW] =	mem_stx8,
-	[BPF_STX | BPF_ATOMIC | BPF_W] =	mem_atomic4,
-	[BPF_STX | BPF_ATOMIC | BPF_DW] =	mem_atomic8,
+	[BPF_STX | BPF_MEM | BPF_B] = mem_stx1,
+	[BPF_STX | BPF_MEM | BPF_H] = mem_stx2,
+	[BPF_STX | BPF_MEM | BPF_W] = mem_stx4,
+	[BPF_STX | BPF_MEM | BPF_DW] = mem_stx8,
+	[BPF_STX | BPF_ATOMIC | BPF_W] = mem_atomic4,
+	[BPF_STX | BPF_ATOMIC | BPF_DW] = mem_atomic8,
 
-	[BPF_ST | BPF_MEM | BPF_B] =	mem_st1,
-	[BPF_ST | BPF_MEM | BPF_H] =	mem_st2,
-	[BPF_ST | BPF_MEM | BPF_W] =	mem_st4,
-	[BPF_ST | BPF_MEM | BPF_DW] =	mem_st8,
+	[BPF_ST | BPF_MEM | BPF_B] = mem_st1,
+	[BPF_ST | BPF_MEM | BPF_H] = mem_st2,
+	[BPF_ST | BPF_MEM | BPF_W] = mem_st4,
+	[BPF_ST | BPF_MEM | BPF_DW] = mem_st8,
 
-	[BPF_JMP | BPF_JA | BPF_K] =	jump,
-	[BPF_JMP | BPF_JEQ | BPF_K] =	jeq_imm,
-	[BPF_JMP | BPF_JGT | BPF_K] =	cmp_imm,
-	[BPF_JMP | BPF_JGE | BPF_K] =	cmp_imm,
-	[BPF_JMP | BPF_JLT | BPF_K] =	cmp_imm,
-	[BPF_JMP | BPF_JLE | BPF_K] =	cmp_imm,
-	[BPF_JMP | BPF_JSGT | BPF_K] =  cmp_imm,
-	[BPF_JMP | BPF_JSGE | BPF_K] =  cmp_imm,
-	[BPF_JMP | BPF_JSLT | BPF_K] =  cmp_imm,
-	[BPF_JMP | BPF_JSLE | BPF_K] =  cmp_imm,
-	[BPF_JMP | BPF_JSET | BPF_K] =	jset_imm,
-	[BPF_JMP | BPF_JNE | BPF_K] =	jne_imm,
-	[BPF_JMP | BPF_JEQ | BPF_X] =	jeq_reg,
-	[BPF_JMP | BPF_JGT | BPF_X] =	cmp_reg,
-	[BPF_JMP | BPF_JGE | BPF_X] =	cmp_reg,
-	[BPF_JMP | BPF_JLT | BPF_X] =	cmp_reg,
-	[BPF_JMP | BPF_JLE | BPF_X] =	cmp_reg,
-	[BPF_JMP | BPF_JSGT | BPF_X] =  cmp_reg,
-	[BPF_JMP | BPF_JSGE | BPF_X] =  cmp_reg,
-	[BPF_JMP | BPF_JSLT | BPF_X] =  cmp_reg,
-	[BPF_JMP | BPF_JSLE | BPF_X] =  cmp_reg,
-	[BPF_JMP | BPF_JSET | BPF_X] =	jset_reg,
-	[BPF_JMP | BPF_JNE | BPF_X] =	jne_reg,
+	[BPF_JMP | BPF_JA | BPF_K] = jump,
+	[BPF_JMP | BPF_JEQ | BPF_K] = jeq_imm,
+	[BPF_JMP | BPF_JGT | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JGE | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JLT | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JLE | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JSGT | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JSGE | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JSLT | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JSLE | BPF_K] = cmp_imm,
+	[BPF_JMP | BPF_JSET | BPF_K] = jset_imm,
+	[BPF_JMP | BPF_JNE | BPF_K] = jne_imm,
+	[BPF_JMP | BPF_JEQ | BPF_X] = jeq_reg,
+	[BPF_JMP | BPF_JGT | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JGE | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JLT | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JLE | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JSGT | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JSGE | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JSLT | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JSLE | BPF_X] = cmp_reg,
+	[BPF_JMP | BPF_JSET | BPF_X] = jset_reg,
+	[BPF_JMP | BPF_JNE | BPF_X] = jne_reg,
 
-	[BPF_JMP | BPF_CALL] =		call,
-	[BPF_JMP | BPF_EXIT] =		jmp_exit,
+	[BPF_JMP | BPF_CALL] = call,
+	[BPF_JMP | BPF_EXIT] = jmp_exit,
 
-	[BPF_JMP32 | BPF_JEQ | BPF_K] =	jeq32_imm,
-	[BPF_JMP32 | BPF_JGT | BPF_K] =	cmp_imm,
-	[BPF_JMP32 | BPF_JGE | BPF_K] =	cmp_imm,
-	[BPF_JMP32 | BPF_JLT | BPF_K] =	cmp_imm,
-	[BPF_JMP32 | BPF_JLE | BPF_K] =	cmp_imm,
-	[BPF_JMP32 | BPF_JSGT | BPF_K] =cmp_imm,
-	[BPF_JMP32 | BPF_JSGE | BPF_K] =cmp_imm,
-	[BPF_JMP32 | BPF_JSLT | BPF_K] =cmp_imm,
-	[BPF_JMP32 | BPF_JSLE | BPF_K] =cmp_imm,
-	[BPF_JMP32 | BPF_JSET | BPF_K] =jset_imm,
-	[BPF_JMP32 | BPF_JNE | BPF_K] =	jne_imm,
-	[BPF_JMP32 | BPF_JEQ | BPF_X] =	jeq_reg,
-	[BPF_JMP32 | BPF_JGT | BPF_X] =	cmp_reg,
-	[BPF_JMP32 | BPF_JGE | BPF_X] =	cmp_reg,
-	[BPF_JMP32 | BPF_JLT | BPF_X] =	cmp_reg,
-	[BPF_JMP32 | BPF_JLE | BPF_X] =	cmp_reg,
-	[BPF_JMP32 | BPF_JSGT | BPF_X] =cmp_reg,
-	[BPF_JMP32 | BPF_JSGE | BPF_X] =cmp_reg,
-	[BPF_JMP32 | BPF_JSLT | BPF_X] =cmp_reg,
-	[BPF_JMP32 | BPF_JSLE | BPF_X] =cmp_reg,
-	[BPF_JMP32 | BPF_JSET | BPF_X] =jset_reg,
-	[BPF_JMP32 | BPF_JNE | BPF_X] =	jne_reg,
+	[BPF_JMP32 | BPF_JEQ | BPF_K] = jeq32_imm,
+	[BPF_JMP32 | BPF_JGT | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JGE | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JLT | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JLE | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JSGT | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JSGE | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JSLT | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JSLE | BPF_K] = cmp_imm,
+	[BPF_JMP32 | BPF_JSET | BPF_K] = jset_imm,
+	[BPF_JMP32 | BPF_JNE | BPF_K] = jne_imm,
+	[BPF_JMP32 | BPF_JEQ | BPF_X] = jeq_reg,
+	[BPF_JMP32 | BPF_JGT | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JGE | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JLT | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JLE | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JSGT | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JSGE | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JSLT | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JSLE | BPF_X] = cmp_reg,
+	[BPF_JMP32 | BPF_JSET | BPF_X] = jset_reg,
+	[BPF_JMP32 | BPF_JNE | BPF_X] = jne_reg,
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /******************************
  ******** PRE_REFACTOR ********
  *****************************/
 
-
-
-
-
-
-
 // constants
 #define NR_JIT_ITERATIONS \
 	32 // Number of iterations to try until offsets converge.
 #define __riscv_xlen 64 //TODO: make dynamic
-
 
 #define BPF_IMAGE_ALIGNMENT 8
 #define ARENA_SIZE (1 * 1024 * 1024)
@@ -227,8 +167,6 @@ static const instr_mapping_t instr_cb[256] = {
 /***********************************
  data structs
 ***********************************/
-
-
 
 struct rv_jit_context {
 	struct bpf_prog *prog;
@@ -547,8 +485,6 @@ inline u16 rvc_ldsp(u8 rd, u32 imm9);
 inline u16 rvc_sdsp(u32 imm9, u8 rs2);
 
 #endif /* __riscv_xlen == 64 */
-
-
 
 void bpf_jit_build_prologue(struct rv_jit_context *ctx);
 void bpf_jit_build_epilogue(struct rv_jit_context *ctx);
