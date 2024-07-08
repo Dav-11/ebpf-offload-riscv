@@ -5,7 +5,9 @@
 #ifndef VERIFIER_H
 #define VERIFIER_H
 
-#include "rv_jit/jit.h"
+#include "base.h"
+#include <linux/bpf.h>
+#include <linux/bpf_verifier.h>
 
 typedef int (*verifier_t)(rvo_prog *, struct bpf_verifier_env *);
 

@@ -55,12 +55,28 @@ int rvo_remove_insns(struct bpf_verifier_env *env, u32 off, u32 cnt)
 
 int rvo_prepare(struct bpf_prog *prog)
 {
+	rvo_prog *prog;
+	int ret;
+
+	prog = kzalloc(sizeof(*prog), GFP_KERNEL);
+	if (!prog)
+		return -ENOMEM;
+
+	prog->aux->offload->dev_priv = prog;
+
+	INIT_LIST_HEAD(&prog->insns);
+
 	// TODO: implement
 	return 0;
 }
 
 int rvo_translate(struct bpf_prog *prog)
 {
+	rvo_prog *p = prog->aux->offload->dev_priv;
+
+	unsigned int max_instr;
+	int err;
+
 	/*
     struct bpf_prog *translated = NULL;
 

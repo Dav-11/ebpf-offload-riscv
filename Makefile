@@ -1,4 +1,4 @@
-KERNEL_VERSION	:= 6.8.0
+MOD_NAME := "ebpf_offload_riscv"
 
 ifeq ($(shell uname -s),Linux)
   
@@ -18,7 +18,8 @@ ebpf_offload_riscv-y := \
 	main.o \
 	offload_prog.o \
 	offload_maps.o \
-	verifier.o
+	verifier.o \
+	jit.o
 	#rv_jit/jit_core.o
 	#rv_jit/jit_regs.o \
 	#rv_jit/jit_codegen_generic.o \
@@ -45,33 +46,24 @@ else
 	MAKEFLAGS += --no-print-directory
 endif
 
-all: format ebpf_offload_riscv.ko
+all: format $(MOD_NAME).ko
 
-ebpf_offload_riscv.ko:
+$(MOD_NAME).ko:
 	$(call msg,MAKE,$@)
 	$(Q) $(MAKE) -C $(KDIR) M=$(PWD) modules
 
 install:
-	@echo
-	@echo "--- Installing module address_book_nf ---"
-	@echo
-
-	sudo make -C $(KDIR) M=$(PWD) modules_install
-	sudo depmod
+	$(call msg,INSTALL,$(MOD_NAME))
+	$(Q) sudo $(MAKE) -C $(KDIR) M=$(PWD) modules_install
+	$(Q) sudo depmod
 
 load:
-	@echo
-	@echo "--- Loading module into the kernel ---"
-	@echo
-
-	sudo insmod $(PWD)/ebpf_offload_riscv.ko
+	$(call msg,LOAD,$(MOD_NAME))
+	$(Q) sudo insmod $(PWD)/$(MOD_NAME).ko
 
 unload:
-	@echo
-	@echo "--- Removing the module from the kernel ---"
-	@echo
-
-	sudo rmmod ebpf_offload_riscv
+	$(call msg,RMMOD,$(MOD_NAME))
+	$(Q) sudo rmmod $(MOD_NAME)
 
 format:
 	@echo
@@ -80,23 +72,21 @@ format:
 	clang-format -i -style=file rv_jit/*.c rv_jit/*.h *.c *.h
 
 clean-module:
-	@echo
-	@echo "--- Cleaning ---"
-	@echo
-	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	$(call msg,CLEAN,$(MOD_NAME))
+	$(Q) $(MAKE) -C $(KDIR) M=$(PWD) clean
 
 .PHONY: clean
 clean: clean-module
-	$(Q) rm -rf $(LINUX_PATH)
 
 help:
 	@echo targets:
-	@echo	   build: compile the LKM
+	@echo      $(MOD_NAME).ko: compile the LKM
 	@echo	   install: install the LKM
 	@echo	   load: load the LKM into the running Linux OS
 	@echo	   unload: remove the LKM from the Linux OS
 	@echo
 	@echo	   help: show this message
+	@echo	   clean-module: clean only module artifacts
 	@echo	   clean: clear all the files created by the compile process
 
 # delete failed targets

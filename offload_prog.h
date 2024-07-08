@@ -5,7 +5,10 @@
 #ifndef MAIN_H
 #define MAIN_H
 
+#include <linux/list.h>
+
 #include "verifier.h"
+#include "base.h"
 
 /***********************************
  * funcs
@@ -54,6 +57,7 @@ int rvo_remove_insns(struct bpf_verifier_env *env, u32 off, u32 cnt);
 
 /**
  * This callback is invoked to prepare the BPF program for offloading.
+ * @brief this function is responsible for preparing the BPF program for verification on the NIC hardware
  * @param prog
  * @return
  */
