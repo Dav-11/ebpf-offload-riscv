@@ -27,4 +27,3 @@ compile_commands.json
 
 # linux kernel
 *.xz
-libs/linux
