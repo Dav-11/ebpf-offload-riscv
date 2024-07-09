@@ -1,6 +1,6 @@
 # Prologue generation
 
-> This docs is relative to the 64 bit version.
+> This docs is relative to the RISCV 64 bit version.
 
 ## Stack layout
 
