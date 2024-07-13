@@ -45,15 +45,7 @@ int jit_compile(struct bpf_prog *prog)
 	}
 
 	rvo_jit_context *ctx;
-	rvo_jit_data *jit_data = prog->aux->jit_data;
-	if (!jit_data) {
-		jit_data = kzalloc(sizeof(*jit_data), GFP_KERNEL);
-		if (!jit_data) {
-			prog = orig_prog;
-			goto out;
-		}
-		prog->aux->jit_data = jit_data;
-	}
+	rvo_prog *jit_data = env->prog->aux->offload->dev_priv;
 
 	ctx = &jit_data->ctx;
 

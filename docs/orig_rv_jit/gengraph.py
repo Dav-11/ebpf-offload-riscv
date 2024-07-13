@@ -1,8 +1,7 @@
 import argparse
-import os
 import subprocess
 
-forbidden  = {
+forbidden = {
     'kzalloc',
     'kcalloc',
     'bpf_jit_dump',
@@ -31,7 +30,12 @@ forbidden  = {
     'strlen',
     'sprintf',
     'kfree',
-    'defined'
+    'defined',
+    'INIT_LIST_HEAD',
+    'bpf_offload_dev_priv',
+    'list_add_tail',
+    'list_for_each_entry',
+    'BPF_OP'
 }
 
 allowed_files = {
@@ -73,7 +77,6 @@ def print_called_functions(function_name, dot_file):
                 #print(parts[0])
 
                 if parts[0] in allowed_files:
-
                     # Recursive call only if the called function has not been visited in this path
                     dot_file.write(f'    {function_name} -> {called_function};\n')
 

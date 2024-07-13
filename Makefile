@@ -16,16 +16,16 @@ CONFIG_ARCH_RV64I := y
 
 ebpf_offload_riscv-y := \
 	main.o \
+	base.c \
+	netdev.o \
 	offload_prog.o \
 	offload_maps.o \
 	verifier.o \
-	jit.o
-	#rv_jit/jit_core.o
-	#rv_jit/jit_regs.o \
-	#rv_jit/jit_codegen_generic.o \
-	#rv_jit/bpf_jit_comp64.o \
-	#rv_jit/memory.o \
-	#rv_jit/utils.o
+	jit.o \
+	prepare.o \
+	codegen_rv64.o \
+	rv_insn_print.o
+
 
 ifeq ($(CONFIG_ARCH_RV64I),y)
 	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp64.o

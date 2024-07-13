@@ -9,23 +9,11 @@
 
 #include "verifier.h"
 #include "base.h"
+#include "prepare.h"
 
 /***********************************
  * funcs
  **********************************/
-
-/**
- * This callback is invoked during BPF instruction verification.
- * It allows the offload device to inspect each BPF instruction during
- * verification.
- *
- * @param env The verifier environment
- * @param insn_idx The index of the current instruction
- * @param prev_insn_idx The index of the previous instruction
- * @return
- */
-int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
-		   int prev_insn_idx);
 
 /**
  * This callback is invoked at the end of BPF program verification to allow
@@ -55,13 +43,6 @@ int rvo_replace_insn(struct bpf_verifier_env *env, u32 off,
  */
 int rvo_remove_insns(struct bpf_verifier_env *env, u32 off, u32 cnt);
 
-/**
- * This callback is invoked to prepare the BPF program for offloading.
- * @brief this function is responsible for preparing the BPF program for verification on the NIC hardware
- * @param prog
- * @return
- */
-int rvo_prepare(struct bpf_prog *prog);
 
 /**
  * This callback translates the BPF program into the offload device's native

@@ -9,32 +9,56 @@
 #include <linux/bpf.h>
 #include <linux/bpf_verifier.h>
 
-typedef int (*verifier_t)(rvo_prog *, struct bpf_verifier_env *);
+typedef int (*verifier_t)(const struct bpf_insn, struct bpf_verifier_env *);
 
 /***********************************
  * funcs
  **********************************/
 
+/**
+ * This callback is invoked during BPF instruction verification.
+ * It allows the offload device to inspect each BPF instruction during
+ * verification.
+ *
+ * @param env The verifier environment
+ * @param insn_idx The index of the current instruction
+ * @param prev_insn_idx The index of the previous instruction
+ * @return
+ */
+int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
+		   int prev_insn_idx);
+
 rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
 				 const unsigned int insn_idx);
 
-int rvo_insn_opcode_supported(u8 code);
-
 // JUMP instructions
-int is_jump_instruction(const rvo_insn_meta *meta);
-int verify_jump_instruction(rvo_prog *prog, struct bpf_verifier_env *env);
+int is_jump_instruction(const struct bpf_insn insn);
+int verify_jump_instruction(const struct bpf_insn insn,
+			    struct bpf_verifier_env *env);
+
+/**
+ * Checks if the function is NOT a BPF to BPF (pseudo) CALL
+ * @param insn the instruction to check
+ * @return 1 if the instruction is a call to ext functions
+ */
+int is_helper_call(const struct bpf_insn insn);
 
 // LOAD instructions
-int is_load_instruction(const rvo_insn_meta *meta);
-int verify_load_instruction(rvo_prog *prog, struct bpf_verifier_env *env);
+int is_load_instruction(const struct bpf_insn insn);
+int verify_load_instruction(const struct bpf_insn insn,
+			    struct bpf_verifier_env *env);
 
 // STORE instructions
-int is_store_instruction(const rvo_insn_meta *meta);
-int verify_store_instruction(rvo_prog *prog, struct bpf_verifier_env *env);
+int is_store_instruction(const struct bpf_insn insn);
+int verify_store_instruction(const struct bpf_insn insn,
+			     struct bpf_verifier_env *env);
+
+int is_atomic_store(const struct bpf_insn insn);
 
 // ALU instructions
-int is_alu_instruction(const rvo_insn_meta *meta);
-int verify_alu_instruction(rvo_prog *prog, struct bpf_verifier_env *env);
+int is_alu_instruction(const struct bpf_insn insn);
+int verify_alu_instruction(const struct bpf_insn insn,
+			   struct bpf_verifier_env *env);
 
 /***********************************
  * MAP insn class -> verifier fn

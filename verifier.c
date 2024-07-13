@@ -7,13 +7,10 @@
 #include "verifier.h"
 
 #define get_meta_first_instruction(rvo_prog) \
-	list_first_entry(&(rvo_prog)->insns, struct rvo_insn_meta, l)
-
+	list_first_entry(&(rvo_prog)->insn_meta, struct rvo_insn_meta, l)
 #define get_meta_last_instruction(rvo_prog) \
-	list_last_entry(&(rvo_prog)->insns, struct rvo_insn_meta, l)
-
+	list_last_entry(&(rvo_prog)->insn_meta, struct rvo_insn_meta, l)
 #define get_meta_next_instruction(meta) list_next_entry(meta, l)
-
 #define get_meta_prev_instruction(meta) list_prev_entry(meta, l)
 
 rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
@@ -27,11 +24,11 @@ rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
 	unsigned int forward = insn_idx - meta->n;
 
 	// number of instructions remaining in the program from the current position
-	const unsigned int remaining = prog->n_insns - insn_idx - 1;
+	const unsigned int remaining = prog->ninsns - insn_idx - 1;
 
 	if (min(forward, backward) > remaining) {
 		// the target instruction is beyond the end of the program
-		backward = prog->n_insns - insn_idx - 1;
+		backward = prog->ninsns - insn_idx - 1;
 		meta = get_meta_last_instruction(prog);
 	}
 	if (min(forward, backward) > insn_idx && backward > insn_idx) {
@@ -55,21 +52,43 @@ rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
 	return meta;
 }
 
-int rvo_insn_opcode_supported(const u8 code)
+// JUMP instruction
+
+int is_jump_instruction(const struct bpf_insn insn)
+
+		return BPF_CLASS(insn.code) == BPF_JMP;
+}
+int verify_jump_instruction(const struct bpf_insn insn,
+			    struct bpf_verifier_env *env)
 {
-	return (int)!!instr_cb[code];
+	if (BPF_OP(insn.code) == BPF_CALL) {
+		return !is_helper_call(insn);
+	}
+
+	return 1;
 }
 
-int is_jump_instruction(const rvo_insn_meta *meta)
+int is_helper_call(const struct bpf_insn insn)
 {
-	const struct bpf_insn insn = meta->insn;
+	/*
+	 * opcode:
+	 *   1000 0 101   src_reg = 0000 (0) -> call helper function by static ID
+	 *   1000 0 101   src_reg = 0010 (2) -> call helper function by BTF ID
+	 *   ---- - ---
+	 *   CALL K JMP
+	 */
 
-	return BPF_CLASS(insn.code) == BPF_JMP;
+	if (is_jump_instruction(insn) && BPF_OP(insn.code) == BPF_CALL &&
+	    insn.src_reg != BPF_PSEUDO_CALL) {
+		pr_err("Unsupported helper func jump instruction found");
+		return 1;
+	}
+
+	return 0;
 }
-
-int __always_inline is_kfunc_call(const struct bpf_insn insn)
+int is_kfunc_call(const struct bpf_insn insn)
 {
-	if (BPF_OP(insn.code) == BPF_CALL &&
+	if (is_jump_instruction(insn) && BPF_OP(insn.code) == BPF_CALL &&
 	    insn.src_reg != BPF_PSEUDO_KFUNC_CALL) {
 		pr_err("Unsupported kfunc instruction found");
 		return 1;
@@ -78,78 +97,82 @@ int __always_inline is_kfunc_call(const struct bpf_insn insn)
 	return 0;
 }
 
-/**
- * opcode:
- *   1000 0 101   src_reg = 0000 (0) -> call helper function by static ID
- *   1000 0 101   src_reg = 0010 (2) -> call helper function by BTF ID
- *   ---- - ---
- *   CALL K JMP
- *
- * @param insn
- */
-int __always_inline is_helper_call(const struct bpf_insn insn) {
-	if (BPF_OP(insn.code) == BPF_CALL &&
-	    (insn.src_reg == 2 || insn.src_reg == 0)) {
-		pr_err("Unsupported helper func jump instruction found");
-		return 1;
-	}
+// LOAD instruction
 
-	return 0;
-}
-
-int verify_jump_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
-
-    const rvo_insn_meta *meta = prog->verifier_meta;
-    const struct bpf_insn insn = meta->insn;
-
-    if (BPF_OP(insn.code) == BPF_CALL) {
-
-        return  (!is_kfunc_call(insn) && !is_helper_call(insn));
-    }
-
-	return 1;
-}
-
-int is_load_instruction(const rvo_insn_meta *meta)
+int is_load_instruction(const struct bpf_insn insn)
 {
-	return (BPF_CLASS(meta->insn.code) == BPF_LD ||
-		BPF_CLASS(meta->insn.code) == BPF_LDX);
+	return (BPF_CLASS(insn.code) == BPF_LD ||
+		BPF_CLASS(insn.code) == BPF_LDX);
 }
-
-int verify_load_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
+int verify_load_instruction(const struct bpf_insn insn,
+			    struct bpf_verifier_env *env)
+{
 	// all ok
 	return 1;
 }
 
-int is_atomic_store(const rvo_insn_meta *meta)
+// STORE instruction
+
+int is_store_instruction(const struct bpf_insn insn)
+{
+	return (BPF_CLASS(insn.code) == BPF_ST ||
+		BPF_CLASS(insn.code) == BPF_STX);
+}
+int verify_store_instruction(const struct bpf_insn insn,
+			     struct bpf_verifier_env *env)
+{
+	// all ok
+	return 1;
+}
+
+int is_atomic_store(const struct bpf_insn insn)
 {
 	//  OP  S CLS
 	// ---- - ---
 	// 1100 0 000   BPF_ATOMIC
 	// 0000 0 011   BPF_STX
 
-	return (BPF_CLASS(meta->insn.code) == BPF_STX &&
-		BPF_OP(meta->insn.code) == BPF_ATOMIC);
+	return (BPF_CLASS(insn.code) == BPF_STX &&
+		BPF_OP(insn.code) == BPF_ATOMIC);
 }
 
-int is_store_instruction(const rvo_insn_meta *meta)
+// ALU instruction
+
+int is_alu_instruction(const struct bpf_insn insn)
 {
-	return (BPF_CLASS(meta->insn.code) == BPF_ST ||
-		BPF_CLASS(meta->insn.code) == BPF_STX);
+	return (BPF_CLASS(insn.code) == BPF_ALU ||
+		BPF_CLASS(insn.code) == BPF_ALU64);
 }
-
-int verify_store_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
+int verify_alu_instruction(const struct bpf_insn insn,
+			   struct bpf_verifier_env *env)
+{
 	// all ok
 	return 1;
 }
 
-int is_alu_instruction(const rvo_insn_meta *meta)
-{
-	return (BPF_CLASS(meta->insn.code) == BPF_ALU ||
-		BPF_CLASS(meta->insn.code) == BPF_ALU64);
-}
+// Main function
 
-int verify_alu_instruction(rvo_prog *prog, struct bpf_verifier_env *env) {
-	// all ok
-	return 1;
+int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
+		   int prev_insn_idx)
+{
+	rvo_prog *prog = env->prog->aux->offload->dev_priv;
+
+	/** META STUFF **/
+	rvo_insn_meta *meta = prog->verifier_meta;
+	meta = rvo_get_insn_meta(prog, meta, insn_idx);
+
+	const struct bpf_insn insn = meta->insn;
+
+	// if insn uses extended BPF regs -> error
+	if (insn.src_reg >= MAX_BPF_REG || insn.dst_reg >= MAX_BPF_REG) {
+		pr_err("program uses extended registers, unsupported\n");
+		return -EINVAL;
+	}
+
+	if (!verifier_map[BPF_CLASS(insn.code)](insn, env)) {
+		pr_err("Unsupported instruction found");
+		return -EINVAL;
+	}
+
+	return 0;
 }

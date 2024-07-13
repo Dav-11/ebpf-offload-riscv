@@ -74,6 +74,33 @@ classDiagram
             bit sleepable
         }
 
+        class bpf_prog_offload {
+            struct bpf_prog        *prog
+            struct net_device    *netdev
+            struct bpf_offload_dev    *offdev
+            void            *dev_priv
+            struct list_head offloads
+            bool dev_state
+            bool opt_failed
+            void            *jited_image
+            u32 jited_len
+        }
+
+        class bpf_insn {
+            __u8 code
+            __u8 dst_reg: 4
+            __u8 src_reg: 4
+            __s16 off
+            __s32 imm
+        }
+
+        class bpf_offloaded_map {
+            struct bpf_map map
+            struct net_device *netdev
+            const struct bpf_map_dev_ops *dev_ops
+            void *dev_priv
+            struct list_head offloads
+        }
     }
     
 
