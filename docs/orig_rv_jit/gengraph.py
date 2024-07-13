@@ -59,8 +59,6 @@ def print_called_functions(function_name, dot_file):
     if function_name not in visited and function_name not in forbidden:
 
         visited.add(function_name)  # Union of visited and the current function
-        #print(function_name)
-        #print('.', end="")
 
         result = subprocess.run(['cscope', '-d', '-L', '-2', function_name], stdout=subprocess.PIPE, text=True)
         lines = result.stdout.splitlines()
@@ -74,7 +72,6 @@ def print_called_functions(function_name, dot_file):
 
             if len(parts) >= 4 and parts[1] not in called:
                 called_function = parts[1]
-                #print(parts[0])
 
                 if parts[0] in allowed_files:
                     # Recursive call only if the called function has not been visited in this path
