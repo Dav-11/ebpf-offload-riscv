@@ -4,7 +4,37 @@
 
 #include "rv_insn.h"
 
-#define PRINT_INSN(a, b, c) printk("%s %s %s", a, b, c)
+static u8 bpf_to_rv_reg(int bpf_reg, unsigned long *flags)
+{
+	u8 reg = regmap[bpf_reg];
+
+	switch (reg) {
+	case RV_CTX_F_SEEN_S1:
+	case RV_CTX_F_SEEN_S2:
+	case RV_CTX_F_SEEN_S3:
+	case RV_CTX_F_SEEN_S4:
+	case RV_CTX_F_SEEN_S5:
+	case RV_CTX_F_SEEN_S6:
+		__set_bit(reg, flags);
+	}
+
+	return reg;
+}
+
+static bool seen_reg(int reg, unsigned long *flags)
+{
+	switch (reg) {
+	case RV_CTX_F_SEEN_CALL:
+	case RV_CTX_F_SEEN_S1:
+	case RV_CTX_F_SEEN_S2:
+	case RV_CTX_F_SEEN_S3:
+	case RV_CTX_F_SEEN_S4:
+	case RV_CTX_F_SEEN_S5:
+	case RV_CTX_F_SEEN_S6:
+		return test_bit(reg, flags);
+	}
+	return false;
+}
 
 static inline u32 rv_addi(u8 rd, u8 rs1, u16 imm11_0)
 {

@@ -4,6 +4,7 @@
 
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/bpf.h>
 
 #include "offload_prog.h"
 
@@ -30,8 +31,6 @@ static int __init ebpf_riscv_offload_init(void)
 	// init device
 	dev = NULL;
 	dev = bpf_offload_dev_create(&rvo_offload_ops, NULL);
-
-
 
 	pr_info("LOADED BPF OFFLOAD DEVICE");
 

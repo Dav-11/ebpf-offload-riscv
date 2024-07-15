@@ -9,7 +9,8 @@ void gen_meta_jump(rvo_prog *prog)
 	rvo_insn_meta *curr_meta;
 
 	list_for_each_entry(curr_meta, &prog->insn_meta, l) {
-		insn = curr_meta->insn rvo_insn_meta * dst_meta;
+		struct bpf_insn insn = curr_meta->insn;
+		rvo_insn_meta *dst_meta;
 
 		if (is_jump_instruction(curr_meta->insn)) {
 			if (BPF_OP(insn.code) == BPF_EXIT) {
@@ -28,50 +29,57 @@ void gen_meta_jump(rvo_prog *prog)
 			unsigned int dst_idx;
 
 			if (pseudo_call)
-				dst_idx = meta->n + 1 + meta->insn.imm;
+				dst_idx =
+					curr_meta->n + 1 + curr_meta->insn.imm;
 			else
-				dst_idx = meta->n + 1 + meta->insn.off;
+				dst_idx =
+					curr_meta->n + 1 + curr_meta->insn.off;
 
-			dst_meta = nfp_bpf_goto_meta(nfp_prog, meta, dst_idx);
+			dst_meta = rvo_get_insn_meta(prog, curr_meta, dst_idx);
 
 			if (pseudo_call)
 				dst_meta->flags |= FLAG_INSN_IS_SUBPROG_START;
 
 			dst_meta->flags |= FLAG_INSN_IS_JUMP_DST;
-			meta->jmp_dst = dst_meta;
+			curr_meta->jmp_dst = dst_meta;
 		}
 	}
 }
 
-int create_meta_for_insns(rvo_prog *my_prog, const struct bpf_insn *insns,
+int create_meta_for_insns(rvo_prog *my_prog, const struct bpf_insn *bpf_insns,
 			  unsigned int cnt)
 {
 	rvo_insn_meta *meta;
 
-	for (unsigned int i = 0; i < ; i++) {
+	for (unsigned int i = 0; i < cnt; i++) {
 		meta = kzalloc(sizeof(*meta), GFP_KERNEL);
 		if (!meta)
 			return -ENOMEM;
 
-		meta->insn = insns[i];
+		meta->insn = bpf_insns[i];
 		meta->n = i;
 
 		/** ADD HERE meta generation if can be done before first loop **/
 
-		list_add_tail(&meta->l, &my_prog->insns_meta);
+		list_add_tail(&meta->l, &my_prog->insn_meta);
 	}
 
-	my_prog->ninsns = insns->len;
+	my_prog->bpf_ninsns = cnt;
 
 	/** meta gen after first loop **/
 
 	gen_meta_jump(my_prog);
+
+	return 0;
 }
 
 int rvo_prepare(struct bpf_prog *prog)
 {
 	rvo_prog *my_prog;
 	int ret;
+
+	rvo_insn_meta *meta1;
+	rvo_insn_meta *meta2;
 
 	// allocate struct
 	prog = kzalloc(sizeof(*my_prog), GFP_KERNEL);
@@ -91,12 +99,18 @@ int rvo_prepare(struct bpf_prog *prog)
 	if (ret)
 		goto err_free;
 
-	// TODO: implement
 	return 0;
 
 err_free:
 
-	//TODO: free list
+	// Traverse the list and free the elements
+	list_for_each_entry_safe(meta1, meta2, &(my_prog->insn_meta), l) {
+		list_del(&meta1->l);
+		kfree(meta1);
+	}
+
+	// free prog
+	kfree(prog);
 
 	return ret;
 }

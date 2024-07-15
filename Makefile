@@ -16,22 +16,15 @@ CONFIG_ARCH_RV64I := y
 
 ebpf_offload_riscv-y := \
 	main.o \
-	base.c \
-	netdev.o \
+	base.o \
 	offload_prog.o \
-	offload_maps.o \
 	verifier.o \
-	jit.o \
 	prepare.o \
+	jit.o \
 	codegen_rv64.o \
 	rv_insn_print.o
-
-
-ifeq ($(CONFIG_ARCH_RV64I),y)
-	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp64.o
-else
-	obj-$(CONFIG_BPF_JIT) += rv_jit/bpf_jit_comp32.o
-endif
+#	offload_maps.o \
+#	netdev.o
 
 # hide output unless V=1
 ifeq ($(V),1)
@@ -69,7 +62,7 @@ format:
 	@echo
 	@echo "--- Formatting the code ---"
 	@echo
-	clang-format -i -style=file rv_jit/*.c rv_jit/*.h *.c *.h
+	clang-format -i -style=file *.c *.h
 
 clean-module:
 	$(call msg,CLEAN,$(MOD_NAME))
@@ -78,6 +71,10 @@ clean-module:
 .PHONY: clean
 clean: clean-module
 
+compile_commands.json:
+	$(call msg,GEN,$@)
+	$(Q) intercept-build $(MAKE)
+
 help:
 	@echo targets:
 	@echo      $(MOD_NAME).ko: compile the LKM
@@ -85,9 +82,12 @@ help:
 	@echo	   load: load the LKM into the running Linux OS
 	@echo	   unload: remove the LKM from the Linux OS
 	@echo
-	@echo	   help: show this message
+	@echo      compile_commands.json: generate compilation DB for vscode/jb
+	@echo
 	@echo	   clean-module: clean only module artifacts
 	@echo	   clean: clear all the files created by the compile process
+	@echo
+	@echo	   help: show this message
 
 # delete failed targets
 .DELETE_ON_ERROR:

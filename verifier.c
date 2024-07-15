@@ -6,57 +6,12 @@
 
 #include "verifier.h"
 
-#define get_meta_first_instruction(rvo_prog) \
-	list_first_entry(&(rvo_prog)->insn_meta, struct rvo_insn_meta, l)
-#define get_meta_last_instruction(rvo_prog) \
-	list_last_entry(&(rvo_prog)->insn_meta, struct rvo_insn_meta, l)
-#define get_meta_next_instruction(meta) list_next_entry(meta, l)
-#define get_meta_prev_instruction(meta) list_prev_entry(meta, l)
-
-rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
-				 const unsigned int insn_idx)
-{
-	unsigned int i;
-
-	// calculate the distance (in terms of instructions) between the current instruction and the target instruction
-	// both in the forward and backward directions.
-	unsigned int backward = meta->n - insn_idx;
-	unsigned int forward = insn_idx - meta->n;
-
-	// number of instructions remaining in the program from the current position
-	const unsigned int remaining = prog->ninsns - insn_idx - 1;
-
-	if (min(forward, backward) > remaining) {
-		// the target instruction is beyond the end of the program
-		backward = prog->ninsns - insn_idx - 1;
-		meta = get_meta_last_instruction(prog);
-	}
-	if (min(forward, backward) > insn_idx && backward > insn_idx) {
-		// the target instruction is before the start of the program
-		forward = insn_idx;
-		meta = get_meta_first_instruction(prog);
-	}
-
-	if (forward < backward) {
-		// Iterate forward times using get_meta_next_instruction(meta) to move to the target instruction metadata.
-		for (i = 0; i < forward; i++) {
-			meta = get_meta_next_instruction(meta);
-		}
-	} else {
-		// Iterate backward times using get_meta_prev_instruction(meta) to move to the target instruction metadata.
-		for (i = 0; i < backward; i++) {
-			meta = get_meta_prev_instruction(meta);
-		}
-	}
-
-	return meta;
-}
-
 // JUMP instruction
 
 int is_jump_instruction(const struct bpf_insn insn)
-
-		return BPF_CLASS(insn.code) == BPF_JMP;
+{
+	__u8 const code = BPF_CLASS(insn.code);
+	return (code == BPF_JMP);
 }
 int verify_jump_instruction(const struct bpf_insn insn,
 			    struct bpf_verifier_env *env)
@@ -158,7 +113,7 @@ int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
 	rvo_prog *prog = env->prog->aux->offload->dev_priv;
 
 	/** META STUFF **/
-	rvo_insn_meta *meta = prog->verifier_meta;
+	rvo_insn_meta *meta = prog->curr_meta;
 	meta = rvo_get_insn_meta(prog, meta, insn_idx);
 
 	const struct bpf_insn insn = meta->insn;

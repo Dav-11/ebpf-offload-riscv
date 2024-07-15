@@ -28,9 +28,6 @@ typedef int (*verifier_t)(const struct bpf_insn, struct bpf_verifier_env *);
 int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
 		   int prev_insn_idx);
 
-rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
-				 const unsigned int insn_idx);
-
 // JUMP instructions
 int is_jump_instruction(const struct bpf_insn insn);
 int verify_jump_instruction(const struct bpf_insn insn,

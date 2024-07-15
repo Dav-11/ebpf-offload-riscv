@@ -8,6 +8,9 @@
 .zed
 .cache
 
+# venv
+venv
+
 # cmake
 compile_commands.json
 

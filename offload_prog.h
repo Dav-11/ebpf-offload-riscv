@@ -43,7 +43,6 @@ int rvo_replace_insn(struct bpf_verifier_env *env, u32 off,
  */
 int rvo_remove_insns(struct bpf_verifier_env *env, u32 off, u32 cnt);
 
-
 /**
  * This callback translates the BPF program into the offload device's native
  * format.

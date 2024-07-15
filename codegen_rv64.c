@@ -28,8 +28,34 @@ static bool is_32b_int(s64 val)
  * codegen
  **********************************/
 
+void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn, rvo_prog *prog) {
+
+	u8 code = insn->code;
+
+	switch (code) {
+	case BPF_JMP | BPF_JA:
+	case BPF_JMP | BPF_CALL:
+	case BPF_JMP | BPF_EXIT:
+	case BPF_JMP | BPF_TAIL_CALL:
+		break;
+	default:
+		*rd = bpf_to_rv_reg(insn->dst_reg, &(prog->used_regs));
+	}
+
+	if (code & (BPF_ALU | BPF_X) ||
+	    code & (BPF_ALU64 | BPF_X) ||
+	    code & (BPF_JMP | BPF_X) ||
+	    code & (BPF_JMP32 | BPF_X) ||
+	    code & BPF_LDX ||
+	    code & BPF_STX)
+	{
+
+		*rs = bpf_to_rv_reg(insn->src_reg, &(prog->used_regs));
+	}
+}
+
 /* Emit a 2-byte riscv compressed instruction. */
-static inline void emitc(const u16 insn, rvo_jit_context *ctx)
+static inline void emitc(const u16 insn, rvo_prog *ctx)
 {
 	BUILD_BUG_ON(!rvc_enabled());
 
@@ -40,7 +66,7 @@ static inline void emitc(const u16 insn, rvo_jit_context *ctx)
 }
 
 /* Emit a 4-byte riscv instruction. */
-static inline void emit(const u32 insn, rvo_jit_context *ctx)
+static inline void emit(const u32 insn, rvo_prog *ctx)
 {
 	if (ctx->insns) {
 		ctx->insns[ctx->ninsns] = insn;
@@ -54,90 +80,90 @@ static inline void emit(const u32 insn, rvo_jit_context *ctx)
  * instr high lvl
  **********************************/
 
-inline void emit_jalr(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_jalr(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_jalr(rd, rs, imm), ctx);
 }
-inline void emit_mv(u8 rd, u8 rs, rvo_jit_context *ctx)
+inline void emit_mv(u8 rd, u8 rs, rvo_prog *ctx)
 {
 	emit(rv_addi(rd, rs, 0), ctx);
 }
-inline void emit_add(u8 rd, u8 rs1, u8 rs2, rvo_jit_context *ctx)
+inline void emit_add(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_add(rd, rs1, rs2), ctx);
 }
-inline void emit_addi(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_addi(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_addi(rd, rs, imm), ctx);
 }
-inline void emit_li(u8 rd, s32 imm, rvo_jit_context *ctx)
+inline void emit_li(u8 rd, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_addi(rd, RV_REG_ZERO, imm), ctx);
 }
-inline void emit_lui(u8 rd, s32 imm, rvo_jit_context *ctx)
+inline void emit_lui(u8 rd, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_lui(rd, imm), ctx);
 }
-inline void emit_slli(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_slli(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_slli(rd, rs, imm), ctx);
 }
-inline void emit_andi(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_andi(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_andi(rd, rs, imm), ctx);
 }
-inline void emit_srli(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_srli(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_srli(rd, rs, imm), ctx);
 }
-inline void emit_srai(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_srai(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_srai(rd, rs, imm), ctx);
 }
-inline void emit_sub(u8 rd, u8 rs1, u8 rs2, rvo_jit_context *ctx)
+inline void emit_sub(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_sub(rd, rs1, rs2), ctx);
 }
-inline void emit_or(u8 rd, u8 rs1, u8 rs2, rvo_jit_context *ctx)
+inline void emit_or(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_or(rd, rs1, rs2), ctx);
 }
-inline void emit_and(u8 rd, u8 rs1, u8 rs2, rvo_jit_context *ctx)
+inline void emit_and(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_and(rd, rs1, rs2), ctx);
 }
-inline void emit_xor(u8 rd, u8 rs1, u8 rs2, rvo_jit_context *ctx)
+inline void emit_xor(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_xor(rd, rs1, rs2), ctx);
 }
-inline void emit_lw(u8 rd, s32 off, u8 rs1, rvo_jit_context *ctx)
+inline void emit_lw(u8 rd, s32 off, u8 rs1, rvo_prog *ctx)
 {
 	emit(rv_lw(rd, off, rs1), ctx);
 }
-inline void emit_sw(u8 rs1, s32 off, u8 rs2, rvo_jit_context *ctx)
+inline void emit_sw(u8 rs1, s32 off, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_sw(rs1, off, rs2), ctx);
 }
 
 /* RV64-only helper functions. */
 
-inline void emit_addiw(u8 rd, u8 rs, s32 imm, rvo_jit_context *ctx)
+inline void emit_addiw(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
 	emit(rv_addiw(rd, rs, imm), ctx);
 }
-inline void emit_ld(u8 rd, s32 off, u8 rs1, rvo_jit_context *ctx)
+inline void emit_ld(u8 rd, s32 off, u8 rs1, rvo_prog *ctx)
 {
 	emit(rv_ld(rd, off, rs1), ctx);
 }
-inline void emit_sd(u8 rs1, s32 off, u8 rs2, rvo_jit_context *ctx)
+inline void emit_sd(u8 rs1, s32 off, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_sd(rs1, off, rs2), ctx);
 }
-inline void emit_subw(u8 rd, u8 rs1, u8 rs2, rvo_jit_context *ctx)
+inline void emit_subw(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_subw(rd, rs1, rs2), ctx);
 }
-inline void emit_sextb(u8 rd, u8 rs, rvo_jit_context *ctx)
+inline void emit_sextb(u8 rd, u8 rs, rvo_prog *ctx)
 {
 	if (rvzbb_enabled()) {
 		emit(rvzbb_sextb(rd, rs), ctx);
@@ -147,7 +173,7 @@ inline void emit_sextb(u8 rd, u8 rs, rvo_jit_context *ctx)
 	emit_slli(rd, rs, 56, ctx);
 	emit_srai(rd, rd, 56, ctx);
 }
-inline void emit_sexth(u8 rd, u8 rs, rvo_jit_context *ctx)
+inline void emit_sexth(u8 rd, u8 rs, rvo_prog *ctx)
 {
 	if (rvzbb_enabled()) {
 		emit(rvzbb_sexth(rd, rs), ctx);
@@ -157,11 +183,11 @@ inline void emit_sexth(u8 rd, u8 rs, rvo_jit_context *ctx)
 	emit_slli(rd, rs, 48, ctx);
 	emit_srai(rd, rd, 48, ctx);
 }
-inline void emit_sextw(u8 rd, u8 rs, rvo_jit_context *ctx)
+inline void emit_sextw(u8 rd, u8 rs, rvo_prog *ctx)
 {
 	emit_addiw(rd, rs, 0, ctx);
 }
-inline void emit_zexth(u8 rd, u8 rs, rvo_jit_context *ctx)
+inline void emit_zexth(u8 rd, u8 rs, rvo_prog *ctx)
 {
 	if (rvzbb_enabled()) {
 		emit(rvzbb_zexth(rd, rs), ctx);
@@ -171,13 +197,13 @@ inline void emit_zexth(u8 rd, u8 rs, rvo_jit_context *ctx)
 	emit_slli(rd, rs, 48, ctx);
 	emit_srli(rd, rd, 48, ctx);
 }
-inline void emit_zextw(u8 rd, u8 rs, rvo_jit_context *ctx)
+inline void emit_zextw(u8 rd, u8 rs, rvo_prog *ctx)
 {
 	emit_slli(rd, rs, 32, ctx);
 	emit_srli(rd, rd, 32, ctx);
 }
 
-static void emit_imm(u8 rd, s64 val, rvo_jit_context *ctx)
+static void emit_imm(u8 rd, s64 val, rvo_prog *ctx)
 {
 	/* Note that the immediate from the add is sign-extended,
 	 * which means that we need to compensate this by adding 2^12,
@@ -224,7 +250,7 @@ static void emit_imm(u8 rd, s64 val, rvo_jit_context *ctx)
  * main emit function
  **********************************/
 
-int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_jit_context *ctx,
+int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 		      bool extra_pass)
 {
 	bool is64 = BPF_CLASS(insn->code) == BPF_ALU64 ||

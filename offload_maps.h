@@ -5,7 +5,8 @@
 #ifndef MAPS_H
 #define MAPS_H
 
-#include "rv_jit/jit.h"
+#include <linux/bpf.h>
+#include "jit.h"
 
 #define RVO_BPF_MAX_KEYS 256
 

@@ -5,6 +5,9 @@
 #ifndef EBPF_OFFLOAD_RISCV_RV_INSN_H
 #define EBPF_OFFLOAD_RISCV_RV_INSN_H
 
+#include <linux/bpf.h>
+#include <linux/filter.h>
+
 enum {
 	RV_REG_ZERO = 0, /* The constant value 0 */
 	RV_REG_RA = 1, /* Return address */
@@ -48,6 +51,24 @@ static const int regmap[] = {
 	[BPF_REG_8] = RV_REG_S3,  [BPF_REG_9] = RV_REG_S4,
 	[BPF_REG_FP] = RV_REG_S5, [BPF_REG_AX] = RV_REG_T0,
 };
+
+enum {
+	RV_CTX_F_SEEN_TAIL_CALL =	0,
+	RV_CTX_F_SEEN_CALL =		RV_REG_RA,
+	RV_CTX_F_SEEN_S1 =		RV_REG_S1,
+	RV_CTX_F_SEEN_S2 =		RV_REG_S2,
+	RV_CTX_F_SEEN_S3 =		RV_REG_S3,
+	RV_CTX_F_SEEN_S4 =		RV_REG_S4,
+	RV_CTX_F_SEEN_S5 =		RV_REG_S5,
+	RV_CTX_F_SEEN_S6 =		RV_REG_S6,
+};
+
+/***********************************
+ * regs
+ **********************************/
+
+static u8 bpf_to_rv_reg(int bpf_reg, unsigned long *flags);
+static bool seen_reg(int reg, unsigned long *flags);
 
 /***********************************
  * instr generation

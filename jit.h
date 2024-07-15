@@ -7,19 +7,15 @@
 
 #include "base.h"
 #include "codegen.h"
+#include "rv_insn.h"
 
+#include <linux/kernel.h>
 #include <linux/bpf.h>
 #include <linux/bpf_verifier.h>
+#include <linux/stddef.h> // NULL
 
 #define RVO_PROG_MAX_LEN 255
-
-//typedef struct rvo_jit_data {
-//	struct bpf_binary_header *header;
-//	struct bpf_binary_header *ro_header;
-//	u8 *image;
-//	u8 *ro_image;
-//	struct rvo_jit_context ctx;
-//} rvo_jit_data;
+#define NR_JIT_ITERATIONS 5
 
 static int rvo_bpf_replace_map_ptrs(struct rvo_prog *prog);
 
