@@ -17,6 +17,9 @@
 #define RVO_PROG_MAX_LEN 255
 #define NR_JIT_ITERATIONS 5
 
-static int rvo_bpf_replace_map_ptrs(struct rvo_prog *prog);
+#define BPF_PROG_CHUNK_SHIFT	6
+#define BPF_PROG_CHUNK_SIZE	(1 << BPF_PROG_CHUNK_SHIFT)
+
+int rvo_bpf_replace_map_ptrs(struct rvo_prog *prog);
 
 #endif //EBPF_OFFLOAD_RISCV_JIT_H

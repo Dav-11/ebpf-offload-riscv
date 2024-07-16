@@ -1,4 +1,4 @@
-MOD_NAME := "ebpf_offload_riscv"
+MOD_NAME := ebpf_offload_riscv
 
 ifeq ($(shell uname -s),Linux)
   
@@ -73,7 +73,7 @@ clean: clean-module
 
 compile_commands.json:
 	$(call msg,GEN,$@)
-	$(Q) intercept-build $(MAKE)
+	$(Q) intercept-build $(MAKE) $(MOD_NAME).ko
 
 help:
 	@echo targets:

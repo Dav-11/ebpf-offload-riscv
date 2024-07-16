@@ -28,8 +28,8 @@ static bool is_32b_int(s64 val)
  * codegen
  **********************************/
 
-void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn, rvo_prog *prog) {
-
+void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn, rvo_prog *prog)
+{
 	u8 code = insn->code;
 
 	switch (code) {
@@ -42,14 +42,9 @@ void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn, rvo_prog *prog) {
 		*rd = bpf_to_rv_reg(insn->dst_reg, &(prog->used_regs));
 	}
 
-	if (code & (BPF_ALU | BPF_X) ||
-	    code & (BPF_ALU64 | BPF_X) ||
-	    code & (BPF_JMP | BPF_X) ||
-	    code & (BPF_JMP32 | BPF_X) ||
-	    code & BPF_LDX ||
-	    code & BPF_STX)
-	{
-
+	if (code & (BPF_ALU | BPF_X) || code & (BPF_ALU64 | BPF_X) ||
+	    code & (BPF_JMP | BPF_X) || code & (BPF_JMP32 | BPF_X) ||
+	    code & BPF_LDX || code & BPF_STX) {
 		*rs = bpf_to_rv_reg(insn->src_reg, &(prog->used_regs));
 	}
 }

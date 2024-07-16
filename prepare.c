@@ -50,8 +50,9 @@ int create_meta_for_insns(rvo_prog *my_prog, const struct bpf_insn *bpf_insns,
 			  unsigned int cnt)
 {
 	rvo_insn_meta *meta;
+	unsigned int i;
 
-	for (unsigned int i = 0; i < cnt; i++) {
+	for (i = 0; i < cnt; i++) {
 		meta = kzalloc(sizeof(*meta), GFP_KERNEL);
 		if (!meta)
 			return -ENOMEM;

@@ -43,7 +43,7 @@ enum {
 	RV_REG_T6 = 31,
 };
 
-static const int regmap[] = {
+const int regmap[] = {
 	[BPF_REG_0] = RV_REG_A5,  [BPF_REG_1] = RV_REG_A0,
 	[BPF_REG_2] = RV_REG_A1,  [BPF_REG_3] = RV_REG_A2,
 	[BPF_REG_4] = RV_REG_A3,  [BPF_REG_5] = RV_REG_A4,
@@ -53,22 +53,22 @@ static const int regmap[] = {
 };
 
 enum {
-	RV_CTX_F_SEEN_TAIL_CALL =	0,
-	RV_CTX_F_SEEN_CALL =		RV_REG_RA,
-	RV_CTX_F_SEEN_S1 =		RV_REG_S1,
-	RV_CTX_F_SEEN_S2 =		RV_REG_S2,
-	RV_CTX_F_SEEN_S3 =		RV_REG_S3,
-	RV_CTX_F_SEEN_S4 =		RV_REG_S4,
-	RV_CTX_F_SEEN_S5 =		RV_REG_S5,
-	RV_CTX_F_SEEN_S6 =		RV_REG_S6,
+	RV_CTX_F_SEEN_TAIL_CALL = 0,
+	RV_CTX_F_SEEN_CALL = RV_REG_RA,
+	RV_CTX_F_SEEN_S1 = RV_REG_S1,
+	RV_CTX_F_SEEN_S2 = RV_REG_S2,
+	RV_CTX_F_SEEN_S3 = RV_REG_S3,
+	RV_CTX_F_SEEN_S4 = RV_REG_S4,
+	RV_CTX_F_SEEN_S5 = RV_REG_S5,
+	RV_CTX_F_SEEN_S6 = RV_REG_S6,
 };
 
 /***********************************
  * regs
  **********************************/
 
-static u8 bpf_to_rv_reg(int bpf_reg, unsigned long *flags);
-static bool seen_reg(int reg, unsigned long *flags);
+u8 bpf_to_rv_reg(int bpf_reg, unsigned long *flags);
+bool seen_reg(int reg, unsigned long *flags);
 
 /***********************************
  * instr generation
@@ -128,5 +128,31 @@ inline u32 rv_lr_w(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
 inline u32 rv_sc_w(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
 inline u32 rv_fence(u8 pred, u8 succ);
 inline u32 rv_nop(void);
+
+inline u32 rv_addiw(u8 rd, u8 rs1, u16 imm11_0);
+inline u32 rv_slliw(u8 rd, u8 rs1, u16 imm11_0);
+inline u32 rv_srliw(u8 rd, u8 rs1, u16 imm11_0);
+inline u32 rv_sraiw(u8 rd, u8 rs1, u16 imm11_0);
+inline u32 rv_addw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_subw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_sllw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_srlw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_sraw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_mulw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_divw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_divuw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_remw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_remuw(u8 rd, u8 rs1, u8 rs2);
+inline u32 rv_ld(u8 rd, u16 imm11_0, u8 rs1);
+inline u32 rv_lwu(u8 rd, u16 imm11_0, u8 rs1);
+inline u32 rv_sd(u8 rs1, u16 imm11_0, u8 rs2);
+inline u32 rv_amoadd_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+inline u32 rv_amoand_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+inline u32 rv_amoor_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+inline u32 rv_amoxor_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+inline u32 rv_amoswap_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+inline u32 rv_lr_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+inline u32 rv_sc_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
+
 
 #endif //EBPF_OFFLOAD_RISCV_RV_INSN_H

@@ -16,11 +16,9 @@
 #define FLAG_INSN_IS_JUMP_DST BIT(0)
 #define FLAG_INSN_IS_SUBPROG_START BIT(1)
 
-
 /***********************************
  * structs
  **********************************/
-
 
 typedef struct rv_jit_data {
 	struct bpf_binary_header *header;
@@ -28,7 +26,6 @@ typedef struct rv_jit_data {
 	u8 *image;
 	//u8 *ro_image;
 } rv_jit_data;
-
 
 /**
  * @struct rvo_insn_meta
