@@ -22,7 +22,8 @@ ebpf_offload_riscv-y := \
 	prepare.o \
 	jit.o \
 	codegen_rv64.o \
-	rv_insn_print.o
+	bpf_code.o \
+	rv_insn_rv64.o
 #	offload_maps.o \
 #	netdev.o
 
@@ -79,8 +80,8 @@ help:
 	@echo targets:
 	@echo      $(MOD_NAME).ko: compile the LKM
 	@echo	   install: install the LKM
-	@echo	   load: load the LKM into the running Linux OS
-	@echo	   unload: remove the LKM from the Linux OS
+	@echo	   load: load the LKM into the running Linux Kernel
+	@echo	   unload: remove the LKM from the Linux Kernel
 	@echo
 	@echo      compile_commands.json: generate compilation DB for vscode/jb
 	@echo

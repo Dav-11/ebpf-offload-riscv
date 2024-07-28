@@ -13,15 +13,49 @@ static inline bool rvc_enabled(void)
 	return IS_ENABLED(CONFIG_RISCV_ISA_C);
 }
 
-static inline bool rvzbb_enabled(void)
+static inline bool is_12b_int(long val)
 {
-	return IS_ENABLED(CONFIG_RISCV_ISA_ZBB) &&
-	       riscv_has_extension_likely(RISCV_ISA_EXT_ZBB);
+	return -(1L << 11) <= val && val < (1L << 11);
 }
 
-static bool is_32b_int(s64 val)
+static inline bool is_13b_int(long val)
+{
+	return -(1L << 12) <= val && val < (1L << 12);
+}
+
+static inline bool is_21b_int(long val)
+{
+	return -(1L << 20) <= val && val < (1L << 20);
+}
+
+static inline bool is_32b_int(s64 val)
 {
 	return -(1L << 31) <= val && val < (1L << 31);
+}
+
+static bool in_auipc_jalr_range(s64 val)
+{
+	/*
+     * auipc+jalr can reach any signed PC-relative offset in the range
+     * [-2^31 - 2^11, 2^31 - 2^11).
+     */
+	return (-(1L << 31) - (1L << 11)) <= val &&
+	       val < ((1L << 31) - (1L << 11));
+}
+
+void mark_call(rvo_prog *prog)
+{
+	__set_bit(RV_CTX_F_SEEN_CALL, &prog->flags);
+}
+
+/**
+ * @brief Convert from ninsns to bytes.
+ * @param ninsns
+ * @return
+ */
+static inline int ninsns_rvoff(int ninsns)
+{
+	return ninsns << 1;
 }
 
 /***********************************
@@ -49,6 +83,29 @@ void init_regs(u8 *rd, u8 *rs, const struct bpf_insn *insn, rvo_prog *prog)
 	}
 }
 
+int rv_offset(int insn, int off, rvo_prog *ctx)
+{
+	int from, to;
+
+	// BPF branch is from PC+1 while RV is from PC
+	off++;
+
+	if (insn > 0) {
+		from = ctx->offset[insn - 1];
+	} else {
+		// if insn number <= 0 -> prologue
+		from = ctx->prologue_len;
+	}
+
+	if (insn + off > 0) {
+		to = ctx->offset[insn + off - 1];
+	} else {
+		to = ctx->prologue_len;
+	}
+
+	return ninsns_rvoff(to - from);
+}
+
 /* Emit a 2-byte riscv compressed instruction. */
 static inline void emitc(const u16 insn, rvo_prog *ctx)
 {
@@ -72,8 +129,190 @@ static inline void emit(const u32 insn, rvo_prog *ctx)
 }
 
 /***********************************
+ * emit multiple insns
+ **********************************/
+
+int emit_jump_and_link(u8 rd, s64 rvoff, bool fixed_addr, rvo_prog *ctx)
+{
+	s64 upper, lower;
+
+	if (rvoff && fixed_addr && is_21b_int(rvoff)) {
+		emit(rv_jal(rd, rvoff >> 1), ctx);
+		return 0;
+
+	} else if (in_auipc_jalr_range(rvoff)) {
+		upper = (rvoff + (1 << 11)) >> 12;
+		lower = rvoff & 0xfff;
+		emit(rv_auipc(RV_REG_T1, upper), ctx);
+		emit(rv_jalr(rd, RV_REG_T1, lower), ctx);
+		return 0;
+	}
+
+	pr_err("bpf-jit: target offset 0x%llx is out of range\n", rvoff);
+	return -ERANGE;
+}
+
+void emit_branch(u8 cond, u8 rd, u8 rs, int rvoff, rvo_prog *ctx)
+{
+	s64 upper, lower;
+
+	if (is_13b_int(rvoff)) {
+		emit_bcc(cond, rd, rs, rvoff, ctx);
+		return;
+	}
+
+	/* Adjust for jal */
+	rvoff -= 4;
+
+	/* Transform, e.g.:
+     *   bne rd,rs,foo
+     * to
+     *   beq rd,rs,<.L1>
+     *   (auipc foo)
+     *   jal(r) foo
+     * .L1
+     */
+	cond = invert_bpf_cond(cond);
+	if (is_21b_int(rvoff)) {
+		emit_bcc(cond, rd, rs, 8, ctx);
+		emit(rv_jal(RV_REG_ZERO, rvoff >> 1), ctx);
+		return;
+	}
+
+	/* 32b No need for an additional rvoff adjustment, since we
+     * get that from the auipc at PC', where PC = PC' + 4.
+     */
+	upper = (rvoff + (1 << 11)) >> 12;
+	lower = rvoff & 0xfff;
+
+	emit_bcc(cond, rd, rs, 12, ctx);
+	emit(rv_auipc(RV_REG_T1, upper), ctx);
+	emit(rv_jalr(RV_REG_ZERO, RV_REG_T1, lower), ctx);
+}
+
+void emit_imm(u8 rd, s64 val, rvo_prog *ctx)
+{
+	/* Note that the immediate from the add is sign-extended,
+     * which means that we need to compensate this by adding 2^12,
+     * when the 12th bit is set. A simpler way of doing this, and
+     * getting rid of the check, is to just add 2**11 before the
+     * shift. The "Loading a 32-Bit constant" example from the
+     * "Computer Organization and Design, RISC-V edition" book by
+     * Patterson/Hennessy highlights this fact.
+     *
+     * This also means that we need to process LSB to MSB.
+     */
+	s64 upper = (val + (1 << 11)) >> 12;
+	/* Sign-extend lower 12 bits to 64 bits since immediates for li, addiw,
+     * and addi are signed and RVC checks will perform signed comparisons.
+     */
+	s64 lower = ((val & 0xfff) << 52) >> 52;
+	int shift;
+
+	if (is_32b_int(val)) {
+		if (upper)
+			emit_lui(rd, upper, ctx);
+
+		if (!upper) {
+			emit_li(rd, lower, ctx);
+			return;
+		}
+
+		emit_addiw(rd, rd, lower, ctx);
+		return;
+	}
+
+	shift = __ffs(upper);
+	upper >>= shift;
+	shift += 12;
+
+	emit_imm(rd, upper, ctx);
+
+	emit_slli(rd, rd, shift, ctx);
+	if (lower)
+		emit_addi(rd, rd, lower, ctx);
+}
+
+
+
+int emit_call(u64 addr, bool fixed_addr, rvo_prog *ctx)
+{
+    // TODO: impl
+    return 0;
+}
+int emit_bpf_tail_call(int insn, rvo_prog *ctx){
+    //TODO: implement
+    return 0;
+}
+inline int epilogue_offset(rvo_prog *ctx){
+    //TODO: implement
+    return 0;
+}
+
+/* Emit fixed-length instructions for address */
+int emit_addr(u8 rd, u64 addr, bool extra_pass, rvo_prog *ctx)
+{
+    //TODO: implement
+    return 0;
+}
+
+/* For accesses to BTF pointers, add an entry to the exception table */
+int add_exception_handler(const struct bpf_insn *insn,
+                          rvo_prog *ctx,
+                          int dst_reg, int insn_len)
+{
+    //TODO: implement
+    return 0;
+}
+
+void emit_atomic(u8 rd, u8 rs, s16 off, s32 imm, bool is64,
+                 rvo_prog *ctx)
+{
+    //TODO: implement
+}
+
+
+
+
+
+/***********************************
  * instr high lvl
  **********************************/
+
+void emit_bcc(u8 cond, u8 rd, u8 rs, int rvoff, rvo_prog *ctx)
+{
+	switch (cond) {
+	case BPF_JEQ:
+		emit(rv_beq(rd, rs, rvoff >> 1), ctx);
+		return;
+	case BPF_JGT:
+		emit(rv_bltu(rs, rd, rvoff >> 1), ctx);
+		return;
+	case BPF_JLT:
+		emit(rv_bltu(rd, rs, rvoff >> 1), ctx);
+		return;
+	case BPF_JGE:
+		emit(rv_bgeu(rd, rs, rvoff >> 1), ctx);
+		return;
+	case BPF_JLE:
+		emit(rv_bgeu(rs, rd, rvoff >> 1), ctx);
+		return;
+	case BPF_JNE:
+		emit(rv_bne(rd, rs, rvoff >> 1), ctx);
+		return;
+	case BPF_JSGT:
+		emit(rv_blt(rs, rd, rvoff >> 1), ctx);
+		return;
+	case BPF_JSLT:
+		emit(rv_blt(rd, rs, rvoff >> 1), ctx);
+		return;
+	case BPF_JSGE:
+		emit(rv_bge(rd, rs, rvoff >> 1), ctx);
+		return;
+	case BPF_JSLE:
+		emit(rv_bge(rs, rd, rvoff >> 1), ctx);
+	}
+}
 
 inline void emit_jalr(u8 rd, u8 rs, s32 imm, rvo_prog *ctx)
 {
@@ -158,87 +397,43 @@ inline void emit_subw(u8 rd, u8 rs1, u8 rs2, rvo_prog *ctx)
 {
 	emit(rv_subw(rd, rs1, rs2), ctx);
 }
-inline void emit_sextb(u8 rd, u8 rs, rvo_prog *ctx)
-{
-	if (rvzbb_enabled()) {
-		emit(rvzbb_sextb(rd, rs), ctx);
-		return;
-	}
 
-	emit_slli(rd, rs, 56, ctx);
-	emit_srai(rd, rd, 56, ctx);
-}
-inline void emit_sexth(u8 rd, u8 rs, rvo_prog *ctx)
+inline void emit_zext_32(u8 reg, rvo_prog *ctx)
 {
-	if (rvzbb_enabled()) {
-		emit(rvzbb_sexth(rd, rs), ctx);
-		return;
-	}
-
-	emit_slli(rd, rs, 48, ctx);
-	emit_srai(rd, rd, 48, ctx);
-}
-inline void emit_sextw(u8 rd, u8 rs, rvo_prog *ctx)
-{
-	emit_addiw(rd, rs, 0, ctx);
-}
-inline void emit_zexth(u8 rd, u8 rs, rvo_prog *ctx)
-{
-	if (rvzbb_enabled()) {
-		emit(rvzbb_zexth(rd, rs), ctx);
-		return;
-	}
-
-	emit_slli(rd, rs, 48, ctx);
-	emit_srli(rd, rd, 48, ctx);
-}
-inline void emit_zextw(u8 rd, u8 rs, rvo_prog *ctx)
-{
-	emit_slli(rd, rs, 32, ctx);
-	emit_srli(rd, rd, 32, ctx);
+	emit_slli(reg, reg, 32, ctx);
+	emit_srli(reg, reg, 32, ctx);
 }
 
-static void emit_imm(u8 rd, s64 val, rvo_prog *ctx)
+void emit_zext_32_rd_rs(u8 *rd, u8 *rs, rvo_prog *ctx)
 {
-	/* Note that the immediate from the add is sign-extended,
-	 * which means that we need to compensate this by adding 2^12,
-	 * when the 12th bit is set. A simpler way of doing this, and
-	 * getting rid of the check, is to just add 2**11 before the
-	 * shift. The "Loading a 32-Bit constant" example from the
-	 * "Computer Organization and Design, RISC-V edition" book by
-	 * Patterson/Hennessy highlights this fact.
-	 *
-	 * This also means that we need to process LSB to MSB.
-	 */
-	s64 upper = (val + (1 << 11)) >> 12;
-	/* Sign-extend lower 12 bits to 64 bits since immediates for li, addiw,
-	 * and addi are signed and RVC checks will perform signed comparisons.
-	 */
-	s64 lower = ((val & 0xfff) << 52) >> 52;
-	int shift;
+	emit_mv(RV_REG_T2, *rd, ctx);
+	emit_zext_32(RV_REG_T2, ctx);
+	emit_mv(RV_REG_T1, *rs, ctx);
+	emit_zext_32(RV_REG_T1, ctx);
+	*rd = RV_REG_T2;
+	*rs = RV_REG_T1;
+}
 
-	if (is_32b_int(val)) {
-		if (upper)
-			emit_lui(rd, upper, ctx);
+void emit_sext_32_rd_rs(u8 *rd, u8 *rs, rvo_prog *ctx)
+{
+	emit_addiw(RV_REG_T2, *rd, 0, ctx);
+	emit_addiw(RV_REG_T1, *rs, 0, ctx);
+	*rd = RV_REG_T2;
+	*rs = RV_REG_T1;
+}
 
-		if (!upper) {
-			emit_li(rd, lower, ctx);
-			return;
-		}
+void emit_zext_32_rd_t1(u8 *rd, rvo_prog *ctx)
+{
+	emit_mv(RV_REG_T2, *rd, ctx);
+	emit_zext_32(RV_REG_T2, ctx);
+	emit_zext_32(RV_REG_T1, ctx);
+	*rd = RV_REG_T2;
+}
 
-		emit_addiw(rd, rd, lower, ctx);
-		return;
-	}
-
-	shift = __ffs(upper);
-	upper >>= shift;
-	shift += 12;
-
-	emit_imm(rd, upper, ctx);
-
-	emit_slli(rd, rd, shift, ctx);
-	if (lower)
-		emit_addi(rd, rd, lower, ctx);
+void emit_sext_32_rd(u8 *rd, rvo_prog *ctx)
+{
+	emit_addiw(RV_REG_T2, *rd, 0, ctx);
+	*rd = RV_REG_T2;
 }
 
 /***********************************
@@ -259,44 +454,17 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 
 	u8 rd = -1;
 	u8 rs = -1;
-	u8 code = insn->code
+	u8 code = insn->code;
 
-		  switch (code)
-	{
+	init_regs(&rd, &rs, insn, ctx);
+
+	switch (code) {
 	/* dst = src */
 	case BPF_ALU | BPF_MOV | BPF_X:
 	case BPF_ALU64 | BPF_MOV | BPF_X:
-		if (insn_is_cast_user(insn)) {
-			emit_mv(RV_REG_T1, rs, ctx);
-			emit_zextw(RV_REG_T1, RV_REG_T1, ctx);
-			emit_imm(rd, (ctx->user_vm_start >> 32) << 32, ctx);
-			emit(rv_beq(RV_REG_T1, RV_REG_ZERO, 4), ctx);
-			emit_or(RV_REG_T1, rd, RV_REG_T1, ctx);
-			emit_mv(rd, RV_REG_T1, ctx);
-			break;
-		} else if (insn_is_mov_percpu_addr(insn)) {
-			if (rd != rs)
-				emit_mv(rd, rs, ctx);
-#ifdef CONFIG_SMP
-			/* Load current CPU number in T1 */
-			emit_ld(RV_REG_T1, offsetof(struct thread_info, cpu),
-				RV_REG_TP, ctx);
-			/* << 3 because offsets are 8 bytes */
-			emit_slli(RV_REG_T1, RV_REG_T1, 3, ctx);
-			/* Load address of __per_cpu_offset array in T2 */
-			emit_addr(RV_REG_T2, (u64)&__per_cpu_offset, extra_pass,
-				  ctx);
-			/* Add offset of current CPU to  __per_cpu_offset */
-			emit_add(RV_REG_T1, RV_REG_T2, RV_REG_T1, ctx);
-			/* Load __per_cpu_offset[cpu] in T1 */
-			emit_ld(RV_REG_T1, 0, RV_REG_T1, ctx);
-			/* Add the offset to Rd */
-			emit_add(rd, rd, RV_REG_T1, ctx);
-#endif
-		}
 		if (imm == 1) {
 			/* Special mov32 for zext */
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 			break;
 		}
 		switch (insn->off) {
@@ -304,25 +472,24 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_mv(rd, rs, ctx);
 			break;
 		case 8:
-			emit_sextb(rd, rs, ctx);
-			break;
 		case 16:
-			emit_sexth(rd, rs, ctx);
+			emit_slli(RV_REG_T1, rs, 64 - insn->off, ctx);
+			emit_srai(rd, RV_REG_T1, 64 - insn->off, ctx);
 			break;
 		case 32:
-			emit_sextw(rd, rs, ctx);
+			emit_addiw(rd, rs, 0, ctx);
 			break;
 		}
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 
-	/* dst = dst OP src */
+		/* dst = dst OP src */
 	case BPF_ALU | BPF_ADD | BPF_X:
 	case BPF_ALU64 | BPF_ADD | BPF_X:
 		emit_add(rd, rd, rs, ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_SUB | BPF_X:
 	case BPF_ALU64 | BPF_SUB | BPF_X:
@@ -332,31 +499,31 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_subw(rd, rd, rs, ctx);
 
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_AND | BPF_X:
 	case BPF_ALU64 | BPF_AND | BPF_X:
 		emit_and(rd, rd, rs, ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_OR | BPF_X:
 	case BPF_ALU64 | BPF_OR | BPF_X:
 		emit_or(rd, rd, rs, ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_XOR | BPF_X:
 	case BPF_ALU64 | BPF_XOR | BPF_X:
 		emit_xor(rd, rd, rs, ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_MUL | BPF_X:
 	case BPF_ALU64 | BPF_MUL | BPF_X:
 		emit(is64 ? rv_mul(rd, rd, rs) : rv_mulw(rd, rd, rs), ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_DIV | BPF_X:
 	case BPF_ALU64 | BPF_DIV | BPF_X:
@@ -367,7 +534,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit(is64 ? rv_divu(rd, rd, rs) : rv_divuw(rd, rd, rs),
 			     ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_MOD | BPF_X:
 	case BPF_ALU64 | BPF_MOD | BPF_X:
@@ -378,64 +545,110 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit(is64 ? rv_remu(rd, rd, rs) : rv_remuw(rd, rd, rs),
 			     ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_LSH | BPF_X:
 	case BPF_ALU64 | BPF_LSH | BPF_X:
 		emit(is64 ? rv_sll(rd, rd, rs) : rv_sllw(rd, rd, rs), ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_RSH | BPF_X:
 	case BPF_ALU64 | BPF_RSH | BPF_X:
 		emit(is64 ? rv_srl(rd, rd, rs) : rv_srlw(rd, rd, rs), ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_ARSH | BPF_X:
 	case BPF_ALU64 | BPF_ARSH | BPF_X:
 		emit(is64 ? rv_sra(rd, rd, rs) : rv_sraw(rd, rd, rs), ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 
-	/* dst = -dst */
+		/* dst = -dst */
 	case BPF_ALU | BPF_NEG:
 	case BPF_ALU64 | BPF_NEG:
 		emit_sub(rd, RV_REG_ZERO, rd, ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 
-	/* dst = BSWAP##imm(dst) */
+		/* dst = BSWAP##imm(dst) */
 	case BPF_ALU | BPF_END | BPF_FROM_LE:
 		switch (imm) {
 		case 16:
-			emit_zexth(rd, rd, ctx);
+			emit_slli(rd, rd, 48, ctx);
+			emit_srli(rd, rd, 48, ctx);
 			break;
 		case 32:
 			if (!aux->verifier_zext)
-				emit_zextw(rd, rd, ctx);
+				emit_zext_32(rd, ctx);
 			break;
 		case 64:
 			/* Do nothing */
 			break;
 		}
 		break;
+
 	case BPF_ALU | BPF_END | BPF_FROM_BE:
 	case BPF_ALU64 | BPF_END | BPF_FROM_LE:
-		emit_bswap(rd, imm, ctx);
+		emit_li(RV_REG_T2, 0, ctx);
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+		if (imm == 16)
+			goto out_be;
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+		if (imm == 32)
+			goto out_be;
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+		emit_slli(RV_REG_T2, RV_REG_T2, 8, ctx);
+		emit_srli(rd, rd, 8, ctx);
+out_be:
+		emit_andi(RV_REG_T1, rd, 0xff, ctx);
+		emit_add(RV_REG_T2, RV_REG_T2, RV_REG_T1, ctx);
+
+		emit_mv(rd, RV_REG_T2, ctx);
 		break;
 
-	/* dst = imm */
+		/* dst = imm */
 	case BPF_ALU | BPF_MOV | BPF_K:
 	case BPF_ALU64 | BPF_MOV | BPF_K:
 		emit_imm(rd, imm, ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 
-	/* dst = dst OP imm */
+		/* dst = dst OP imm */
 	case BPF_ALU | BPF_ADD | BPF_K:
 	case BPF_ALU64 | BPF_ADD | BPF_K:
 		if (is_12b_int(imm)) {
@@ -445,7 +658,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_add(rd, rd, RV_REG_T1, ctx);
 		}
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_SUB | BPF_K:
 	case BPF_ALU64 | BPF_SUB | BPF_K:
@@ -456,7 +669,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_sub(rd, rd, RV_REG_T1, ctx);
 		}
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_AND | BPF_K:
 	case BPF_ALU64 | BPF_AND | BPF_K:
@@ -467,7 +680,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_and(rd, rd, RV_REG_T1, ctx);
 		}
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_OR | BPF_K:
 	case BPF_ALU64 | BPF_OR | BPF_K:
@@ -478,7 +691,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_or(rd, rd, RV_REG_T1, ctx);
 		}
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_XOR | BPF_K:
 	case BPF_ALU64 | BPF_XOR | BPF_K:
@@ -489,7 +702,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_xor(rd, rd, RV_REG_T1, ctx);
 		}
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_MUL | BPF_K:
 	case BPF_ALU64 | BPF_MUL | BPF_K:
@@ -498,7 +711,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			    rv_mulw(rd, rd, RV_REG_T1),
 		     ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_DIV | BPF_K:
 	case BPF_ALU64 | BPF_DIV | BPF_K:
@@ -512,7 +725,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 				    rv_divuw(rd, rd, RV_REG_T1),
 			     ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_MOD | BPF_K:
 	case BPF_ALU64 | BPF_MOD | BPF_K:
@@ -526,14 +739,14 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 				    rv_remuw(rd, rd, RV_REG_T1),
 			     ctx);
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_LSH | BPF_K:
 	case BPF_ALU64 | BPF_LSH | BPF_K:
 		emit_slli(rd, rd, imm, ctx);
 
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_RSH | BPF_K:
 	case BPF_ALU64 | BPF_RSH | BPF_K:
@@ -543,7 +756,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit(rv_srliw(rd, rd, imm), ctx);
 
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 	case BPF_ALU | BPF_ARSH | BPF_K:
 	case BPF_ALU64 | BPF_ARSH | BPF_K:
@@ -553,10 +766,10 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit(rv_sraiw(rd, rd, imm), ctx);
 
 		if (!is64 && !aux->verifier_zext)
-			emit_zextw(rd, rd, ctx);
+			emit_zext_32(rd, ctx);
 		break;
 
-	/* JUMP off */
+		/* JUMP off */
 	case BPF_JMP | BPF_JA:
 	case BPF_JMP32 | BPF_JA:
 		if (BPF_CLASS(code) == BPF_JMP)
@@ -568,7 +781,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			return ret;
 		break;
 
-	/* IF (dst COND src) JUMP off */
+		/* IF (dst COND src) JUMP off */
 	case BPF_JMP | BPF_JEQ | BPF_X:
 	case BPF_JMP32 | BPF_JEQ | BPF_X:
 	case BPF_JMP | BPF_JGT | BPF_X:
@@ -594,13 +807,10 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 		rvoff = rv_offset(i, off, ctx);
 		if (!is64) {
 			s = ctx->ninsns;
-			if (is_signed_bpf_cond(BPF_OP(code))) {
-				emit_sextw_alt(&rs, RV_REG_T1, ctx);
-				emit_sextw_alt(&rd, RV_REG_T2, ctx);
-			} else {
-				emit_zextw_alt(&rs, RV_REG_T1, ctx);
-				emit_zextw_alt(&rd, RV_REG_T2, ctx);
-			}
+			if (is_signed_bpf_cond(BPF_OP(code)))
+				emit_sext_32_rd_rs(&rd, &rs, ctx);
+			else
+				emit_zext_32_rd_rs(&rd, &rs, ctx);
 			e = ctx->ninsns;
 
 			/* Adjust for extra insns */
@@ -618,7 +828,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 		}
 		break;
 
-	/* IF (dst COND imm) JUMP off */
+		/* IF (dst COND imm) JUMP off */
 	case BPF_JMP | BPF_JEQ | BPF_K:
 	case BPF_JMP32 | BPF_JEQ | BPF_K:
 	case BPF_JMP | BPF_JGT | BPF_K:
@@ -641,18 +851,18 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 	case BPF_JMP32 | BPF_JSLE | BPF_K:
 		rvoff = rv_offset(i, off, ctx);
 		s = ctx->ninsns;
-		if (imm)
+		if (imm) {
 			emit_imm(RV_REG_T1, imm, ctx);
-		rs = imm ? RV_REG_T1 : RV_REG_ZERO;
+			rs = RV_REG_T1;
+		} else {
+			/* If imm is 0, simply use zero register. */
+			rs = RV_REG_ZERO;
+		}
 		if (!is64) {
-			if (is_signed_bpf_cond(BPF_OP(code))) {
-				emit_sextw_alt(&rd, RV_REG_T2, ctx);
-				/* rs has been sign extended */
-			} else {
-				emit_zextw_alt(&rd, RV_REG_T2, ctx);
-				if (imm)
-					emit_zextw(rs, rs, ctx);
-			}
+			if (is_signed_bpf_cond(BPF_OP(code)))
+				emit_sext_32_rd(&rd, ctx);
+			else
+				emit_zext_32_rd_t1(&rd, ctx);
 		}
 		e = ctx->ninsns;
 
@@ -672,76 +882,42 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			emit_and(RV_REG_T1, rd, RV_REG_T1, ctx);
 		}
 		/* For jset32, we should clear the upper 32 bits of t1, but
-		 * sign-extension is sufficient here and saves one instruction,
-		 * as t1 is used only in comparison against zero.
-		 */
+             * sign-extension is sufficient here and saves one instruction,
+             * as t1 is used only in comparison against zero.
+             */
 		if (!is64 && imm < 0)
-			emit_sextw(RV_REG_T1, RV_REG_T1, ctx);
+			emit_addiw(RV_REG_T1, RV_REG_T1, 0, ctx);
 		e = ctx->ninsns;
 		rvoff -= ninsns_rvoff(e - s);
 		emit_branch(BPF_JNE, RV_REG_T1, RV_REG_ZERO, rvoff, ctx);
 		break;
 
-	/* function call */
-	case BPF_JMP | BPF_CALL: {
+	case BPF_JMP | BPF_CALL: /* function call  TODO: fix */
+	{
 		bool fixed_addr;
 		u64 addr;
 
-		/* Inline calls to bpf_get_smp_processor_id()
-		 *
-		 * RV_REG_TP holds the address of the current CPU's task_struct and thread_info is
-		 * at offset 0 in task_struct.
-		 * Load cpu from thread_info:
-		 *     Set R0 to ((struct thread_info *)(RV_REG_TP))->cpu
-		 *
-		 * This replicates the implementation of raw_smp_processor_id() on RISCV
-		 */
-		if (insn->src_reg == 0 &&
-		    insn->imm == BPF_FUNC_get_smp_processor_id) {
-			/* Load current CPU number in R0 */
-			emit_ld(bpf_to_rv_reg(BPF_REG_0, ctx),
-				offsetof(struct thread_info, cpu), RV_REG_TP,
-				ctx);
-			break;
-		}
-
 		mark_call(ctx);
-		ret = bpf_jit_get_func_addr(ctx->prog, insn, extra_pass, &addr,
-					    &fixed_addr);
+		ret = rvo_bpf_jit_get_func_addr(ctx->prog, insn, extra_pass,
+						&addr, &fixed_addr);
 		if (ret < 0)
 			return ret;
-
-		if (insn->src_reg == BPF_PSEUDO_KFUNC_CALL) {
-			const struct btf_func_model *fm;
-			int idx;
-
-			fm = bpf_jit_find_kfunc_model(ctx->prog, insn);
-			if (!fm)
-				return -EINVAL;
-
-			for (idx = 0; idx < fm->nr_args; idx++) {
-				u8 reg = bpf_to_rv_reg(BPF_REG_1 + idx, ctx);
-
-				if (fm->arg_size[idx] == sizeof(int))
-					emit_sextw(reg, reg, ctx);
-			}
-		}
 
 		ret = emit_call(addr, fixed_addr, ctx);
 		if (ret)
 			return ret;
 
 		if (insn->src_reg != BPF_PSEUDO_CALL)
-			emit_mv(bpf_to_rv_reg(BPF_REG_0, ctx), RV_REG_A0, ctx);
+			emit_mv(bpf_to_rv_reg(BPF_REG_0, &ctx->flags), RV_REG_A0, ctx);
 		break;
 	}
-	/* tail call */
+		/* tail call */
 	case BPF_JMP | BPF_TAIL_CALL:
 		if (emit_bpf_tail_call(i, ctx))
 			return -1;
 		break;
 
-	/* function return */
+		/* function return */
 	case BPF_JMP | BPF_EXIT:
 		if (i == ctx->prog->len - 1)
 			break;
@@ -752,7 +928,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			return ret;
 		break;
 
-	/* dst = imm64 */
+		/* dst = imm64 */
 	case BPF_LD | BPF_IMM | BPF_DW: {
 		struct bpf_insn insn1 = insn[1];
 		u64 imm64;
@@ -770,7 +946,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 		return 1;
 	}
 
-	/* LDX: dst = *(unsigned size *)(src + off) */
+		/* LDX: dst = *(unsigned size *)(src + off) */
 	case BPF_LDX | BPF_MEM | BPF_B:
 	case BPF_LDX | BPF_MEM | BPF_H:
 	case BPF_LDX | BPF_MEM | BPF_W:
@@ -779,28 +955,18 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 	case BPF_LDX | BPF_PROBE_MEM | BPF_H:
 	case BPF_LDX | BPF_PROBE_MEM | BPF_W:
 	case BPF_LDX | BPF_PROBE_MEM | BPF_DW:
-	/* LDSX: dst = *(signed size *)(src + off) */
+		/* LDSX: dst = *(signed size *)(src + off) */
 	case BPF_LDX | BPF_MEMSX | BPF_B:
 	case BPF_LDX | BPF_MEMSX | BPF_H:
 	case BPF_LDX | BPF_MEMSX | BPF_W:
 	case BPF_LDX | BPF_PROBE_MEMSX | BPF_B:
 	case BPF_LDX | BPF_PROBE_MEMSX | BPF_H:
-	case BPF_LDX | BPF_PROBE_MEMSX | BPF_W:
-	/* LDX | PROBE_MEM32: dst = *(unsigned size *)(src + RV_REG_ARENA + off) */
-	case BPF_LDX | BPF_PROBE_MEM32 | BPF_B:
-	case BPF_LDX | BPF_PROBE_MEM32 | BPF_H:
-	case BPF_LDX | BPF_PROBE_MEM32 | BPF_W:
-	case BPF_LDX | BPF_PROBE_MEM32 | BPF_DW: {
+	case BPF_LDX | BPF_PROBE_MEMSX | BPF_W: {
 		int insn_len, insns_start;
 		bool sign_ext;
 
 		sign_ext = BPF_MODE(insn->code) == BPF_MEMSX ||
 			   BPF_MODE(insn->code) == BPF_PROBE_MEMSX;
-
-		if (BPF_MODE(insn->code) == BPF_PROBE_MEM32) {
-			emit_add(RV_REG_T2, rs, RV_REG_ARENA, ctx);
-			rs = RV_REG_T2;
-		}
 
 		switch (BPF_SIZE(code)) {
 		case BPF_B:
@@ -887,11 +1053,11 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 			return 1;
 		break;
 	}
-	/* speculation barrier */
+		/* speculation barrier */
 	case BPF_ST | BPF_NOSPEC:
 		break;
 
-	/* ST: *(size *)(dst + off) = imm */
+		/* ST: *(size *)(dst + off) = imm */
 	case BPF_ST | BPF_MEM | BPF_B:
 		emit_imm(RV_REG_T1, imm, ctx);
 		if (is_12b_int(off)) {
@@ -938,86 +1104,7 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 		emit_sd(RV_REG_T2, 0, RV_REG_T1, ctx);
 		break;
 
-	case BPF_ST | BPF_PROBE_MEM32 | BPF_B:
-	case BPF_ST | BPF_PROBE_MEM32 | BPF_H:
-	case BPF_ST | BPF_PROBE_MEM32 | BPF_W:
-	case BPF_ST | BPF_PROBE_MEM32 | BPF_DW: {
-		int insn_len, insns_start;
-
-		emit_add(RV_REG_T3, rd, RV_REG_ARENA, ctx);
-		rd = RV_REG_T3;
-
-		/* Load imm to a register then store it */
-		emit_imm(RV_REG_T1, imm, ctx);
-
-		switch (BPF_SIZE(code)) {
-		case BPF_B:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit(rv_sb(rd, off, RV_REG_T1), ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T2, off, ctx);
-			emit_add(RV_REG_T2, RV_REG_T2, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit(rv_sb(RV_REG_T2, 0, RV_REG_T1), ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		case BPF_H:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit(rv_sh(rd, off, RV_REG_T1), ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T2, off, ctx);
-			emit_add(RV_REG_T2, RV_REG_T2, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit(rv_sh(RV_REG_T2, 0, RV_REG_T1), ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		case BPF_W:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit_sw(rd, off, RV_REG_T1, ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T2, off, ctx);
-			emit_add(RV_REG_T2, RV_REG_T2, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit_sw(RV_REG_T2, 0, RV_REG_T1, ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		case BPF_DW:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit_sd(rd, off, RV_REG_T1, ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T2, off, ctx);
-			emit_add(RV_REG_T2, RV_REG_T2, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit_sd(RV_REG_T2, 0, RV_REG_T1, ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		}
-
-		ret = add_exception_handler(insn, ctx, REG_DONT_CLEAR_MARKER,
-					    insn_len);
-		if (ret)
-			return ret;
-
-		break;
-	}
-
-	/* STX: *(size *)(dst + off) = src */
+		/* STX: *(size *)(dst + off) = src */
 	case BPF_STX | BPF_MEM | BPF_B:
 		if (is_12b_int(off)) {
 			emit(rv_sb(rd, off, rs), ctx);
@@ -1062,83 +1149,6 @@ int bpf_jit_emit_insn(const struct bpf_insn *insn, rvo_prog *ctx,
 	case BPF_STX | BPF_ATOMIC | BPF_DW:
 		emit_atomic(rd, rs, off, imm, BPF_SIZE(code) == BPF_DW, ctx);
 		break;
-
-	case BPF_STX | BPF_PROBE_MEM32 | BPF_B:
-	case BPF_STX | BPF_PROBE_MEM32 | BPF_H:
-	case BPF_STX | BPF_PROBE_MEM32 | BPF_W:
-	case BPF_STX | BPF_PROBE_MEM32 | BPF_DW: {
-		int insn_len, insns_start;
-
-		emit_add(RV_REG_T2, rd, RV_REG_ARENA, ctx);
-		rd = RV_REG_T2;
-
-		switch (BPF_SIZE(code)) {
-		case BPF_B:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit(rv_sb(rd, off, rs), ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T1, off, ctx);
-			emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit(rv_sb(RV_REG_T1, 0, rs), ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		case BPF_H:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit(rv_sh(rd, off, rs), ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T1, off, ctx);
-			emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit(rv_sh(RV_REG_T1, 0, rs), ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		case BPF_W:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit_sw(rd, off, rs, ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T1, off, ctx);
-			emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit_sw(RV_REG_T1, 0, rs, ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		case BPF_DW:
-			if (is_12b_int(off)) {
-				insns_start = ctx->ninsns;
-				emit_sd(rd, off, rs, ctx);
-				insn_len = ctx->ninsns - insns_start;
-				break;
-			}
-
-			emit_imm(RV_REG_T1, off, ctx);
-			emit_add(RV_REG_T1, RV_REG_T1, rd, ctx);
-			insns_start = ctx->ninsns;
-			emit_sd(RV_REG_T1, 0, rs, ctx);
-			insn_len = ctx->ninsns - insns_start;
-			break;
-		}
-
-		ret = add_exception_handler(insn, ctx, REG_DONT_CLEAR_MARKER,
-					    insn_len);
-		if (ret)
-			return ret;
-
-		break;
-	}
-
 	default:
 		pr_err("bpf-jit: unknown opcode %02x\n", code);
 		return -EINVAL;

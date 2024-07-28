@@ -19,15 +19,6 @@ static int __init ebpf_riscv_offload_init(void)
 {
 	pr_info("Loaded module\n");
 
-	/*
-	// init arena memory
-	int err = init_arena();
-	if (err) {
-		pr_err("Could not init arena, exit");
-		return err;
-	}
-
- */
 	// init device
 	dev = NULL;
 	dev = bpf_offload_dev_create(&rvo_offload_ops, NULL);

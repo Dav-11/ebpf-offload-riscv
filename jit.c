@@ -3,6 +3,7 @@
 //
 
 #include "jit.h"
+#include "verifier.h"
 #include <linux/random.h>
 #include <linux/printk.h>
 #include <linux/pid.h>
@@ -34,19 +35,9 @@ static int build_body(rvo_prog *ctx, bool extra_pass, int *offset)
 }
 
 // TODO: understand what this is
-static inline int cfi_get_offset(void)
+static inline int rv_cfi_get_offset(void)
 {
 	return 4;
-}
-
-/**
- * @brief Convert from ninsns to bytes.
- * @param ninsns
- * @return
- */
-static inline int ninsns_rvoff(int ninsns)
-{
-	return ninsns << 1;
 }
 
 static inline void bpf_fill_ill_insns(void *area, unsigned int size)
@@ -70,14 +61,14 @@ bool is_subprog(struct bpf_prog *prog)
 	return false;
 }
 
-unsigned int get_extable_size(rvo_prog *prog)
+static unsigned int get_extable_size(rvo_prog *prog)
 {
 	// TODO: implement
 	// prog->aux->num_exentries * sizeof(struct exception_table_entry);
 	return 0;
 }
 
-struct bpf_binary_header *
+static struct bpf_binary_header *
 jit_binary_alloc(unsigned int prog_len, u8 **img_ptr, unsigned int alignment,
 		 bpf_jit_fill_hole_t bpf_fill_ill_insns)
 {
@@ -232,9 +223,9 @@ jit_binary_alloc(unsigned int prog_len, u8 **img_ptr, unsigned int alignment,
 //	 * TODO: from here downwards, it needs to be reviewed
 //	 */
 //
-//	prog->bpf_func = (void *)ctx->insns + cfi_get_offset();
+//	prog->bpf_func = (void *)ctx->insns - rv_cfi_get_offset();
 //	prog->jited = 1;
-//	prog->jited_len = prog_size - cfi_get_offset();
+//	prog->jited_len = prog_size - rv_cfi_get_offset();
 //
 //	if (!prog->is_func || extra_pass) {
 //		//  --- THIS PART IS USED TO MOVE RO-DATA TO RX-DATA ---
@@ -306,3 +297,105 @@ jit_binary_alloc(unsigned int prog_len, u8 **img_ptr, unsigned int alignment,
 //out_err:
 //	return err;
 //}
+
+bool is_signed_bpf_cond(u8 cond)
+{
+	return cond == BPF_JSGT || cond == BPF_JSLT || cond == BPF_JSGE ||
+	       cond == BPF_JSLE;
+}
+
+/**
+ * @brief Return -1 or inverted cond.
+ */
+inline int invert_bpf_cond(u8 cond)
+{
+	switch (cond) {
+	case BPF_JEQ:
+		return BPF_JNE;
+	case BPF_JGT:
+		return BPF_JLE;
+	case BPF_JLT:
+		return BPF_JGE;
+	case BPF_JGE:
+		return BPF_JLT;
+	case BPF_JLE:
+		return BPF_JGT;
+	case BPF_JNE:
+		return BPF_JEQ;
+	case BPF_JSGT:
+		return BPF_JSLE;
+	case BPF_JSLT:
+		return BPF_JSGE;
+	case BPF_JSGE:
+		return BPF_JSLT;
+	case BPF_JSLE:
+		return BPF_JSGT;
+	}
+	return -1;
+}
+
+int rvo_bpf_jit_get_func_addr(const struct bpf_prog *prog,
+			      const struct bpf_insn *insn, bool extra_pass,
+			      u64 *func_addr, bool *func_addr_fixed)
+{
+	s16 off = insn->off;
+	s32 imm = insn->imm;
+	u8 *addr;
+	int err;
+	rvo_prog *p;
+
+	if (is_jump_instruction(insn)) {
+		if (BPF_OP(insn->code) == BPF_EXIT) {
+			return 0;
+		}
+
+		if (is_helper_call(insn)) {
+			return -EINVAL;
+		}
+
+		/*
+         * BPF-to-BPF call (a.k.a pseudo call).
+         */
+		if (is_pseudo_call(insn)) {
+			/* Place-holder address till the last pass has collected
+             * all addresses for JITed subprograms in which case we
+             * can pick them up from prog->aux.
+             */
+			if (!extra_pass)
+				addr = NULL;
+
+			p = prog->aux->offload->dev_priv;
+            if (verify_pseudofunc_offset(insn, p))
+			{
+				addr = (u8 *)prog->aux->func[off]->bpf_func;
+			}
+		}
+	}
+
+	//	*func_addr_fixed = insn->src_reg != BPF_PSEUDO_CALL;
+	//	if (!*func_addr_fixed) {
+	//		else if (prog->aux->func && off >= 0 &&
+	//			 off < prog->aux->real_func_cnt)
+	//			addr = (u8 *)prog->aux->func[off]->bpf_func;
+	//		else return -EINVAL;
+	//		//    } else if (insn->src_reg == BPF_PSEUDO_KFUNC_CALL &&
+	//		//               bpf_jit_supports_far_kfunc_call()) { // THIS IS ALWAYS FALSE
+	//		//        err = bpf_get_kfunc_addr(prog, insn->imm, insn->off, &addr);
+	//		//        if (err)
+	//		//            return err;
+	//	} else {
+	//		/* Address of a BPF helper call. Since part of the core
+	//         * kernel, it's always at a fixed location. __bpf_call_base
+	//         * and the helper with imm relative to it are both in core
+	//         * kernel.
+	//         *
+	//         * WE DO NOT SUPPORT IT
+	//         */
+	//		//addr = (u8 *)__bpf_call_base + imm;
+	//		addr = NULL;
+	//		return -EINVAL;
+	//	}
+
+	*func_addr = (unsigned long)addr;
+	return 0;
+}

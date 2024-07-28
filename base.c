@@ -3,19 +3,19 @@
 //
 #include "base.h"
 
-rvo_insn_meta *get_meta_first_instruction(rvo_prog *prog)
+rvo_insn_meta *get_meta_first_instruction(const rvo_prog *prog)
 {
 	return list_first_entry(&(prog)->insn_meta, rvo_insn_meta, l);
 }
-rvo_insn_meta *get_meta_last_instruction(rvo_prog *prog)
+rvo_insn_meta *get_meta_last_instruction(const rvo_prog *prog)
 {
 	return list_last_entry(&(prog)->insn_meta, rvo_insn_meta, l);
 }
-rvo_insn_meta *get_meta_next_instruction(rvo_insn_meta *meta)
+rvo_insn_meta *get_meta_next_instruction(const rvo_insn_meta *meta)
 {
 	return list_next_entry(meta, l);
 }
-rvo_insn_meta *get_meta_prev_instruction(rvo_insn_meta *meta)
+rvo_insn_meta *get_meta_prev_instruction(const rvo_insn_meta *meta)
 {
 	return list_prev_entry(meta, l);
 }

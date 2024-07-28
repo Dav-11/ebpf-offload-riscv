@@ -47,7 +47,7 @@ typedef struct rv_jit_data {
  * pointer to jump destination instruction's meta (only for jump instructions)
  */
 typedef struct rvo_insn_meta {
-	struct bpf_insn insn;
+	struct bpf_insn *insn;
 	unsigned short n;
 	struct list_head l;
 	unsigned short flags;
@@ -56,6 +56,18 @@ typedef struct rvo_insn_meta {
 	struct rvo_insn_meta *jmp_dst;
 
 } rvo_insn_meta;
+
+/**
+ * @struct struct nfp_bpf_subprog_info - nfp BPF sub-program (a.k.a. function) info
+ * @var stack_depth:
+ * maximum stack depth used by this sub-program
+ * @var needs_reg_push:
+ * whether sub-program uses callee-saved registers
+ */
+struct nfp_bpf_subprog_info {
+	u16 stack_depth;
+	u8 needs_reg_push : 1;
+};
 
 /**
  * @struct rvo_prog
@@ -90,6 +102,9 @@ typedef struct rvo_insn_meta {
  *
  * @var bpf:
  * Pointer to device structure
+ *
+ * @var offset:
+ * Offset for each instruction after RISCV translation
  */
 typedef struct rvo_prog {
 	struct bpf_prog *prog;
@@ -99,6 +114,8 @@ typedef struct rvo_prog {
 	unsigned int bpf_ninsns;
 	struct list_head insn_meta;
 	rvo_insn_meta *curr_meta;
+
+	unsigned long flags;
 
 	// jit
 	unsigned int ninsns;
@@ -119,10 +136,10 @@ typedef struct rvo_prog {
 
 } rvo_prog;
 
-rvo_insn_meta *get_meta_first_instruction(rvo_prog *prog);
-rvo_insn_meta *get_meta_last_instruction(rvo_prog *prog);
-rvo_insn_meta *get_meta_next_instruction(rvo_insn_meta *meta);
-rvo_insn_meta *get_meta_prev_instruction(rvo_insn_meta *meta);
+rvo_insn_meta *get_meta_first_instruction(const rvo_prog *prog);
+rvo_insn_meta *get_meta_last_instruction(const rvo_prog *prog);
+rvo_insn_meta *get_meta_next_instruction(const rvo_insn_meta *meta);
+rvo_insn_meta *get_meta_prev_instruction(const rvo_insn_meta *meta);
 rvo_insn_meta *rvo_get_insn_meta(const rvo_prog *prog, rvo_insn_meta *meta,
 				 const unsigned int insn_idx);
 

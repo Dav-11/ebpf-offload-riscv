@@ -8,9 +8,18 @@
  * regs
  **********************************/
 
+const int rv_regmap[] = {
+        [BPF_REG_0] = RV_REG_A5,  [BPF_REG_1] = RV_REG_A0,
+        [BPF_REG_2] = RV_REG_A1,  [BPF_REG_3] = RV_REG_A2,
+        [BPF_REG_4] = RV_REG_A3,  [BPF_REG_5] = RV_REG_A4,
+        [BPF_REG_6] = RV_REG_S1,  [BPF_REG_7] = RV_REG_S2,
+        [BPF_REG_8] = RV_REG_S3,  [BPF_REG_9] = RV_REG_S4,
+        [BPF_REG_FP] = RV_REG_S5, [BPF_REG_AX] = RV_REG_T0,
+};
+
 u8 bpf_to_rv_reg(int bpf_reg, unsigned long *flags)
 {
-	u8 reg = regmap[bpf_reg];
+	u8 reg = rv_regmap[bpf_reg];
 
 	switch (reg) {
 	case RV_CTX_F_SEEN_S1:
@@ -72,6 +81,13 @@ inline u32 rv_u_insn(u32 imm31_12, u8 rd, u8 opcode)
 	return (imm31_12 << 12) | (rd << 7) | opcode;
 }
 
+inline u32 rv_r_insn(u8 funct7, u8 rs2, u8 rs1, u8 funct3, u8 rd,
+                     u8 opcode)
+{
+    return (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) |
+           (rd << 7) | opcode;
+}
+
 inline u32 rv_j_insn(u32 imm20_1, u8 rd, u8 opcode)
 {
 	u32 imm;
@@ -82,8 +98,8 @@ inline u32 rv_j_insn(u32 imm20_1, u8 rd, u8 opcode)
 	return (imm << 12) | (rd << 7) | opcode;
 }
 
-inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1,
-			      u8 funct3, u8 rd, u8 opcode)
+inline u32 rv_amo_insn(u8 funct5, u8 aq, u8 rl, u8 rs2, u8 rs1, u8 funct3,
+		       u8 rd, u8 opcode)
 {
 	u8 funct7 = (funct5 << 2) | (aq << 1) | rl;
 

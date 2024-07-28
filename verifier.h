@@ -6,10 +6,12 @@
 #define VERIFIER_H
 
 #include "base.h"
+#include "bpf_code.h"
 #include <linux/bpf.h>
 #include <linux/bpf_verifier.h>
+#include <linux/list.h>
 
-typedef int (*verifier_t)(const struct bpf_insn, struct bpf_verifier_env *);
+typedef bool (*verifier_t)(const struct bpf_insn *, rvo_prog *);
 
 /***********************************
  * funcs
@@ -29,33 +31,17 @@ int rvo_isn_verify(struct bpf_verifier_env *env, int insn_idx,
 		   int prev_insn_idx);
 
 // JUMP instructions
-int is_jump_instruction(const struct bpf_insn insn);
-int verify_jump_instruction(const struct bpf_insn insn,
-			    struct bpf_verifier_env *env);
-
-/**
- * Checks if the function is NOT a BPF to BPF (pseudo) CALL
- * @param insn the instruction to check
- * @return 1 if the instruction is a call to ext functions
- */
-int is_helper_call(const struct bpf_insn insn);
+bool verify_jump_instruction(const struct bpf_insn *insn, rvo_prog *ctx);
+bool verify_pseudofunc_offset(const struct bpf_insn *insn, rvo_prog *ctx);
 
 // LOAD instructions
-int is_load_instruction(const struct bpf_insn insn);
-int verify_load_instruction(const struct bpf_insn insn,
-			    struct bpf_verifier_env *env);
+bool verify_load_instruction(const struct bpf_insn *insn, rvo_prog *ctx);
 
 // STORE instructions
-int is_store_instruction(const struct bpf_insn insn);
-int verify_store_instruction(const struct bpf_insn insn,
-			     struct bpf_verifier_env *env);
-
-int is_atomic_store(const struct bpf_insn insn);
+bool verify_store_instruction(const struct bpf_insn *insn, rvo_prog *ctx);
 
 // ALU instructions
-int is_alu_instruction(const struct bpf_insn insn);
-int verify_alu_instruction(const struct bpf_insn insn,
-			   struct bpf_verifier_env *env);
+bool verify_alu_instruction(const struct bpf_insn *insn, rvo_prog *ctx);
 
 /***********************************
  * MAP insn class -> verifier fn

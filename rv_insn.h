@@ -43,14 +43,7 @@ enum {
 	RV_REG_T6 = 31,
 };
 
-const int regmap[] = {
-	[BPF_REG_0] = RV_REG_A5,  [BPF_REG_1] = RV_REG_A0,
-	[BPF_REG_2] = RV_REG_A1,  [BPF_REG_3] = RV_REG_A2,
-	[BPF_REG_4] = RV_REG_A3,  [BPF_REG_5] = RV_REG_A4,
-	[BPF_REG_6] = RV_REG_S1,  [BPF_REG_7] = RV_REG_S2,
-	[BPF_REG_8] = RV_REG_S3,  [BPF_REG_9] = RV_REG_S4,
-	[BPF_REG_FP] = RV_REG_S5, [BPF_REG_AX] = RV_REG_T0,
-};
+extern const int rv_regmap[];
 
 enum {
 	RV_CTX_F_SEEN_TAIL_CALL = 0,
@@ -153,6 +146,5 @@ inline u32 rv_amoxor_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
 inline u32 rv_amoswap_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
 inline u32 rv_lr_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
 inline u32 rv_sc_d(u8 rd, u8 rs2, u8 rs1, u8 aq, u8 rl);
-
 
 #endif //EBPF_OFFLOAD_RISCV_RV_INSN_H

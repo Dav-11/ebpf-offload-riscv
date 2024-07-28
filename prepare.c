@@ -4,16 +4,17 @@
 
 #include "prepare.h"
 
-void gen_meta_jump(rvo_prog *prog)
+static void gen_meta_jump(rvo_prog *prog)
 {
 	rvo_insn_meta *curr_meta;
+    struct bpf_insn *insn;
 
 	list_for_each_entry(curr_meta, &prog->insn_meta, l) {
-		struct bpf_insn insn = curr_meta->insn;
+		insn = curr_meta->insn;
 		rvo_insn_meta *dst_meta;
 
 		if (is_jump_instruction(curr_meta->insn)) {
-			if (BPF_OP(insn.code) == BPF_EXIT) {
+			if (BPF_OP(insn->code) == BPF_EXIT) {
 				return;
 			}
 
@@ -25,15 +26,15 @@ void gen_meta_jump(rvo_prog *prog)
 			 * If opcode is BPF_CALL at this point, this can only be a
 			 * BPF-to-BPF call (a.k.a pseudo call).
 			 */
-			bool pseudo_call = BPF_OP(insn.code) == BPF_CALL;
+			bool pseudo_call = BPF_OP(insn->code) == BPF_CALL;
 			unsigned int dst_idx;
 
 			if (pseudo_call)
 				dst_idx =
-					curr_meta->n + 1 + curr_meta->insn.imm;
+					curr_meta->n + 1 + curr_meta->insn->imm;
 			else
 				dst_idx =
-					curr_meta->n + 1 + curr_meta->insn.off;
+					curr_meta->n + 1 + curr_meta->insn->off;
 
 			dst_meta = rvo_get_insn_meta(prog, curr_meta, dst_idx);
 
@@ -46,8 +47,9 @@ void gen_meta_jump(rvo_prog *prog)
 	}
 }
 
-int create_meta_for_insns(rvo_prog *my_prog, const struct bpf_insn *bpf_insns,
-			  unsigned int cnt)
+static int create_meta_for_insns(rvo_prog *my_prog,
+				 const struct bpf_insn *bpf_insns,
+				 unsigned int cnt)
 {
 	rvo_insn_meta *meta;
 	unsigned int i;
@@ -57,7 +59,7 @@ int create_meta_for_insns(rvo_prog *my_prog, const struct bpf_insn *bpf_insns,
 		if (!meta)
 			return -ENOMEM;
 
-		meta->insn = bpf_insns[i];
+		meta->insn = &bpf_insns[i];
 		meta->n = i;
 
 		/** ADD HERE meta generation if can be done before first loop **/
@@ -69,7 +71,7 @@ int create_meta_for_insns(rvo_prog *my_prog, const struct bpf_insn *bpf_insns,
 
 	/** meta gen after first loop **/
 
-	gen_meta_jump(my_prog);
+	//gen_meta_jump(my_prog); will be done by jit
 
 	return 0;
 }

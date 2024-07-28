@@ -12,7 +12,7 @@
 venv
 
 # cmake
-compile_commands.json
+#compile_commands.json
 
 # LKM artifacts
 **/*.ko

@@ -25,12 +25,12 @@ int rvo_remove_insns(struct bpf_verifier_env *env, u32 off, u32 cnt)
 
 int rvo_translate(struct bpf_prog *prog)
 {
+	/*
 	rvo_prog *p = prog->aux->offload->dev_priv;
 
 	unsigned int max_instr;
 	int err;
 
-	/*
     struct bpf_prog *translated = NULL;
 
     translated = rvo_bpf_int_jit_compile(prog);
