@@ -237,7 +237,7 @@ void emit_imm(u8 rd, s64 val, rvo_prog *ctx)
 
 int emit_call(u64 addr, bool fixed_addr, rvo_prog *ctx)
 {
-    // TODO: impl
+    // TODO: implement
     return 0;
 }
 int emit_bpf_tail_call(int insn, rvo_prog *ctx){

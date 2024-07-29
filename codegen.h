@@ -24,11 +24,6 @@ int rv_offset(int insn, int off, rvo_prog *ctx);
 int emit_jump_and_link(u8 rd, s64 rvoff, bool fixed_addr, rvo_prog *ctx);
 void emit_branch(u8 cond, u8 rd, u8 rs, int rvoff, rvo_prog *ctx);
 void emit_imm(u8 rd, s64 val, rvo_prog *ctx);
-
-
-// TODO: implement these !
-/* ----------------- START ------------------- */
-
 int emit_call(u64 addr, bool fixed_addr, rvo_prog *ctx);
 int emit_bpf_tail_call(int insn, rvo_prog *ctx);
 inline int epilogue_offset(rvo_prog *ctx);
@@ -43,8 +38,6 @@ int add_exception_handler(const struct bpf_insn *insn,
 
 void emit_atomic(u8 rd, u8 rs, s16 off, s32 imm, bool is64,
                  rvo_prog *ctx);
-
-/* ----------------- STOP ------------------- */
 
 
 

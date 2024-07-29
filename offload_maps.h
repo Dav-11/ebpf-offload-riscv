@@ -6,7 +6,6 @@
 #define MAPS_H
 
 #include <linux/bpf.h>
-#include "jit.h"
 
 #define RVO_BPF_MAX_KEYS 256
 

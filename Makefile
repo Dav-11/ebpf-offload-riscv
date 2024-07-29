@@ -23,8 +23,8 @@ ebpf_offload_riscv-y := \
 	jit.o \
 	codegen_rv64.o \
 	bpf_code.o \
-	rv_insn_rv64.o
-#	offload_maps.o \
+	rv_insn_rv64.o \
+	offload_maps.o
 #	netdev.o
 
 # hide output unless V=1
